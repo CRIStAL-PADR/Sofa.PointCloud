@@ -19,54 +19,32 @@
 *                                                                             *
 * Contact information: contact@sofa-framework.org                             *
 ******************************************************************************/
-#include <sofa/core/ObjectFactory.h>
+#pragma once
+
 #include <sofa/pointcloud/config.h>
-#include <sofa/pointcloud/fwd.h>
+#include <sofa/core/objectmodel/BaseObject.h>
+#include <sofa/core/objectmodel/DataFileName.h>
+#include <sofa/pointcloud/components/PointCloudContainer.h>
 
-
-
-extern "C" {
-    SOFA_POINTCLOUD_API void initExternalModule();
-    SOFA_POINTCLOUD_API const char* getModuleName();
-    SOFA_POINTCLOUD_API const char* getModuleVersion();
-    SOFA_POINTCLOUD_API const char* getModuleLicense();
-    SOFA_POINTCLOUD_API const char* getModuleDescription();
-    SOFA_POINTCLOUD_API void registerObjects(sofa::core::ObjectFactory* factory);
-}
-
-void initExternalModule()
+namespace sofa::pointcloud::components
 {
-    static bool first = true;
-    if (first)
-    {
-        first = false;
-    }
-}
+using sofa::core::objectmodel::DataFileName;
+using sofa::core::objectmodel::BaseObject;
 
-const char* getModuleName()
-{
-    return sofa_tostring(SOFA_TARGET);
-}
+class PointCloudTransform : public BaseObject {
+public:
+    SOFA_CLASS(PointCloudTransform, BaseObject);
 
-const char* getModuleLicense()
-{
-    return "";
-}
+    PointCloudTransform();
+    ~PointCloudTransform();
 
-const char* getModuleVersion()
-{
-    return sofa_tostring(SOFA_POINTCLOUD_VERSION);
-}
+    void init() override;
+    void draw(const sofa::core::visual::VisualParams* params) override;
 
-const char* getModuleDescription()
-{
-    return "Toolbox to manipulate gaussian splated point clouds";
-}
+    SingleLink<PointCloudTransform, PointCloudContainer, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_input;
+    SingleLink<PointCloudTransform, PointCloudContainer, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_output;
+ private:
+};
 
-void registerObjects(sofa::core::ObjectFactory* factory)
-{
-    registerToFactory<sofa::pointcloud::components::PointCloudContainer>(factory);
-    registerToFactory<sofa::pointcloud::components::PointCloudRenderer>(factory);
-    registerToFactory<sofa::pointcloud::components::PointCloudTransform>(factory);
-    registerToFactory<sofa::pointcloud::components::PointCloudInspector>(factory);
+
 }

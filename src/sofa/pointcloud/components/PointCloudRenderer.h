@@ -19,54 +19,55 @@
 *                                                                             *
 * Contact information: contact@sofa-framework.org                             *
 ******************************************************************************/
-#include <sofa/core/ObjectFactory.h>
+#pragma once
+
 #include <sofa/pointcloud/config.h>
-#include <sofa/pointcloud/fwd.h>
+#include <sofa/pointcloud/components/PointCloudContainer.h>
+#include <sofa/core/visual/VisualModel.h>
+#include <sofa/component/visual/BaseCamera.h>
+#include <sofa/gl/GLSLShader.h>
+#include <sofa/helper/SelectableItem.h>
+#include <ostream>
 
-
-
-extern "C" {
-    SOFA_POINTCLOUD_API void initExternalModule();
-    SOFA_POINTCLOUD_API const char* getModuleName();
-    SOFA_POINTCLOUD_API const char* getModuleVersion();
-    SOFA_POINTCLOUD_API const char* getModuleLicense();
-    SOFA_POINTCLOUD_API const char* getModuleDescription();
-    SOFA_POINTCLOUD_API void registerObjects(sofa::core::ObjectFactory* factory);
-}
-
-void initExternalModule()
+namespace sofa::pointcloud::components
 {
-    static bool first = true;
-    if (first)
-    {
-        first = false;
-    }
-}
+using sofa::core::objectmodel::BaseObject;
+using sofa::component::visual::BaseCamera;
 
-const char* getModuleName()
-{
-    return sofa_tostring(SOFA_TARGET);
-}
+// References:
+//  - https://huggingface.co/blog/gaussian-splatting
+class PointCloudRenderer : public sofa::core::visual::VisualModel {
+private:
+    template<class T>
+    using Link = core::objectmodel::SingleLink<PointCloudRenderer, T, core::objectmodel::BaseLink::FLAG_STOREPATH>;
 
-const char* getModuleLicense()
-{
-    return "";
-}
+public:
+    SOFA_CLASS(PointCloudRenderer, BaseObject);
 
-const char* getModuleVersion()
-{
-    return sofa_tostring(SOFA_POINTCLOUD_VERSION);
-}
+    PointCloudRenderer();
+    ~PointCloudRenderer() override;
 
-const char* getModuleDescription()
-{
-    return "Toolbox to manipulate gaussian splated point clouds";
-}
+    Link<PointCloudContainer> l_geometry;
+    Link<BaseCamera> l_camera;
 
-void registerObjects(sofa::core::ObjectFactory* factory)
-{
-    registerToFactory<sofa::pointcloud::components::PointCloudContainer>(factory);
-    registerToFactory<sofa::pointcloud::components::PointCloudRenderer>(factory);
-    registerToFactory<sofa::pointcloud::components::PointCloudTransform>(factory);
-    registerToFactory<sofa::pointcloud::components::PointCloudInspector>(factory);
+    Data<helper::OptionsGroup> d_renderMode;
+    Data<type::Vec3> d_translation;
+    Data<type::Vec3> d_orientation;
+
+    void doInitVisual(const sofa::core::visual::VisualParams* vparams) final;
+    void doDrawVisual(const sofa::core::visual::VisualParams* vparams) final;
+    void doUpdateVisual(const sofa::core::visual::VisualParams* vparams) final;
+
+private:
+    GLuint              _vao;
+    GLuint              _vbo;
+    GLuint              _ssbo_splat;
+    GLuint              _ssbo_index;
+    //RenderConfig        _config;
+
+    std::vector<float>  depths;
+    std::vector<int>    indices;
+
+    gl::GLSLShader      shader;
+};
 }
