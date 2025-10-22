@@ -1,10 +1,11 @@
 import Sofa 
 import Sofa.Core
 import numpy
-import SofaRuntime
 import os
+import SofaRuntime
 p = os.path.abspath( os.path.join(os.getcwd(), "assets") )
 SofaRuntime.DataRepository.addFirstPath(p)  
+
 
 class ROI(Sofa.Core.Controller):
     def __init__(self, *args, **kwargs):
@@ -42,7 +43,7 @@ def createScene(root):
     root.Meshes.addObject("OglModel", filename="mesh/dragon.obj", scale=0.1, translation=[0,3,0])
     root.addChild("PointCloud")
     root.PointCloud.addChild("Geometry")
-    root.PointCloud.Geometry.addObject("PointCloudContainer", name="pc1", filename="assets/garden.ply")
+    root.PointCloud.Geometry.addObject("PointCloudContainer", name="pc1", filename="assets/flowers.ply")
 
     root.PointCloud.addChild("Renderer")
     root.PointCloud.Renderer.addObject("PointCloudRenderer", 
