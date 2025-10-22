@@ -1,9 +1,9 @@
 # Sofa.PointCloud
 
 
-WARNING contains subsential code under MIT License from as implementation for PointCloudRenderer
-https://github.com/panxkun/liteviz-gs
+WARNING contains subsential code under MIT License from Liteviz-gz for the implementation of the PointCloudRenderer
+Have a look at: https://github.com/panxkun/liteviz-gs
 
 TODO: 
-    - implement the PointCloudRender a possiblity select between different rendering backend (the one from liteviz, but also one with cuda). 
+- implement in the PointCloudRender a possiblity select between different rendering backend (the one from liteviz, but also the one from GraphDeco made using cuda et torch). 
 
