@@ -39,11 +39,14 @@ public:
     ~PointCloudTransform();
 
     void init() override;
-    void draw(const sofa::core::visual::VisualParams* params) override;
 
     SingleLink<PointCloudTransform, PointCloudContainer, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_input;
     SingleLink<PointCloudTransform, PointCloudContainer, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_output;
- private:
+
+private:
+    Data<defaulttype::Rigid3Types::Coord> d_frame;
+    Data<type::Vec3> d_scale;
+    void update();
 };
 
 

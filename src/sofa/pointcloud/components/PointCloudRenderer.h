@@ -53,6 +53,11 @@ public:
     Data<helper::OptionsGroup> d_renderMode;
     Data<type::Vec3> d_translation;
     Data<type::Vec3> d_orientation;
+    Data<type::vector<int>> d_indices;
+    Data<type::vector<defaulttype::Rigid3Types::Coord>> d_frames;
+    Data<type::vector<int>> d_frameIndices;
+
+    void init() override;
 
     void doInitVisual(const sofa::core::visual::VisualParams* vparams) final;
     void doDrawVisual(const sofa::core::visual::VisualParams* vparams) final;
@@ -66,7 +71,6 @@ private:
     //RenderConfig        _config;
 
     std::vector<float>  depths;
-    std::vector<int>    indices;
 
     gl::GLSLShader      shader;
 };

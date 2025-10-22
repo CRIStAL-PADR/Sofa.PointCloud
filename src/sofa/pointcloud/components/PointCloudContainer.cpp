@@ -27,6 +27,7 @@
 
 #include <tbb/parallel_for.h>
 #include <tbb/parallel_sort.h>
+#include <Eigen/Geometry>
 
 namespace sofa::core
 {
@@ -39,11 +40,38 @@ void registerToFactory<sofa::pointcloud::components::PointCloudContainer>(sofa::
 
 }
 
+namespace sofa::core::objectmodel
+{
+
+/// Specialization for reading strings
+template<>
+bool Data<Eigen::MatrixXf>::read( const std::string& str ){}
+
+/// Specialization for reading strings
+template<>
+std::string Data<Eigen::MatrixXf>::getValueString() const
+{
+    std::stringstream tmp;
+    tmp << "EigenMatrix(" << m_value.getValue().rows() << "," << m_value.getValue().cols() << ")";
+    return tmp.str();
+}
+
+}
+
+
+
 namespace sofa::pointcloud::components
 {
 
+
 PointCloudContainer::PointCloudContainer() :
     d_filename(initData(&d_filename,"filename","Filename of the object"))
+  , d_positions(initData(&d_positions, "positions", "Indices"))
+  , d_orientations(initData(&d_orientations, "orientations", "Indices"))
+  , d_scales(initData(&d_scales, "scales", ""))
+  , d_opacities(initData(&d_opacities, "opacities", ""))
+  , d_sphericalHarmonics(initData(&d_sphericalHarmonics, "sphericalHarmonics", ""))
+  , d_indices(initData(&d_indices, "indices", "Indices"))
 {
 }
 
@@ -53,20 +81,12 @@ PointCloudContainer::~PointCloudContainer()
 
 void PointCloudContainer::init()
 {
-    std::cout << "INIT " << d_filename.getValue() << std::endl;
-
     if(!d_filename.isSet() || d_filename.getValue() == ""){
-       d_componentState = core::objectmodel::ComponentState::Invalid;
-       return;
+        d_componentState = core::objectmodel::ComponentState::Invalid;
+        return;
     }
 
     load(d_filename.getValue());
-
-    std::cout << "INIT LOAD DONE" << d_filename.getValue() << std::endl;
-    std::cout << "  xyz size:" << data->xyz.size() << std::endl;
-    std::cout << "  xyz row: " << data->xyz.rows() << std::endl;
-    std::cout << "  xyz cols: " << data->xyz.cols() << std::endl;
-
     d_componentState = core::objectmodel::ComponentState::Valid;
 }
 
@@ -83,7 +103,6 @@ void PointCloudContainer::computeBBox(const core::ExecParams* params, bool onlyV
         box.include(type::Vec3{point.x(), point.y(), point.z()});
     }
     f_bbox.setValue(box);
-    std::cout << "COMPUTE BOUNDING BOX " << box << std::endl;
 }
 
 void PointCloudContainer::load(const std::string& filename, int max_sh_degree)
@@ -169,7 +188,22 @@ void PointCloudContainer::load(const std::string& filename, int max_sh_degree)
         sh.col(3 + i) = load_vec(f_rest_list[i], N);
     }
 
+    refData = new GaussianData{ xyz, rot, scale, opac, sh };
     data = new GaussianData{ xyz, rot, scale, opac, sh };
+
+    d_positions.setValue(xyz);
+    d_orientations.setValue(rot);
+    d_scales.setValue(scale);
+    d_opacities.setValue(opac);
+    d_sphericalHarmonics.setValue(sh);
+
+    auto indices = helper::getWriteOnlyAccessor(d_indices);
+    int maxSize = data->xyz.rows();
+    indices.resize(maxSize);
+    for(int i=0;i<maxSize;++i)
+    {
+        indices[i] = i;
+    }
 }
 
 size_t PointCloudContainer::size()
@@ -177,21 +211,68 @@ size_t PointCloudContainer::size()
     return data->xyz.rows();
 }
 
+void PointCloudContainer::transform(const std::vector<defaulttype::Rigid3Types::Coord>& frames,
+                                    const std::vector<std::vector<int>>& frameIndices,
+                                    GaussianData* destination, bool inverseDir)
+{
+    for(size_t frameIndex=0;frameIndex<frameIndices.size();++frameIndex)
+    {
+        auto center = frames[frameIndex].getCenter();
+        auto orientation = frames[frameIndex].getOrientation();
+
+        auto T = Eigen::Translation<float,3>(center.x(), center.y(), center.z());
+        auto R = Eigen::Quaternion<float>(orientation[3], orientation[0], orientation[1], orientation[2]);
+
+        auto transform = T*R;
+
+        for(size_t i=0;i<frameIndices[frameIndex].size(); ++i)
+        {
+            auto vtxIndex = frameIndices[frameIndex][i];
+
+            Eigen::Vector3f worldPosition = ((refData->xyz.row(vtxIndex).transpose()));
+            if(inverseDir)
+                destination->xyz.row(vtxIndex) = transform.inverse() * worldPosition;
+            else
+                destination->xyz.row(vtxIndex) = transform * worldPosition;
+
+            auto tmp = refData->rot.row(vtxIndex);
+            Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
+            if(inverseDir)
+                worldOrientation = R.inverse() * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
+
+            destination->rot.row(vtxIndex)(0) = (worldOrientation).w();
+            destination->rot.row(vtxIndex)(1) = (worldOrientation).x();
+            destination->rot.row(vtxIndex)(2) = (worldOrientation).y();
+            destination->rot.row(vtxIndex)(3) = (worldOrientation).z();
+        }
+    }
+
+    d_positions.setValue(destination->xyz);
+    d_orientations.setValue(destination->rot);
+    d_scales.setValue(destination->scale);
+}
+
+void PointCloudContainer::updateDataFields()
+{
+    std::cout << "UPDATES INNER DATA " << std::endl;
+    d_positions.setValue(data->xyz);
+    d_orientations.setValue(data->rot);
+    d_scales.setValue(data->scale);
+}
+
 void PointCloudContainer::sort(const Eigen::Matrix4f& P,
-                               const type::Vec3& camera_pos,
-                               const type::Vec3& camera_dir,
                                std::vector<float>& depths,
-                               std::vector<int>& depth_index)
+                               type::vector<int>& depth_indices)
 {
     const Eigen::RowVector3f proj_row = P.row(2).head<3>();
+    for(size_t i=0;i<depth_indices.size(); ++i)
+    {
+        int sorted_idx = depth_indices[i];
+        Eigen::Vector3f center = (data->xyz.row(sorted_idx).transpose());
+        depths[sorted_idx] = proj_row.dot(center);
+    }
 
-//    tbb::parallel_for(static_cast<size_t>(0), depths.size(), [&](auto i){
-//        int sorted_idx = depth_index[i];
-//        Eigen::Vector3f center = data->xyz.row(sorted_idx).transpose();
-//        depths[sorted_idx] = proj_row.dot(center);
-//    });
-
-    tbb::parallel_sort(depth_index.begin(), depth_index.end(),
+    tbb::parallel_sort(depth_indices.begin(), depth_indices.end(),
                        [&](int i, int j) {
         return depths[i] < depths[j];
     });

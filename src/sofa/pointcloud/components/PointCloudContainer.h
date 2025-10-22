@@ -26,6 +26,18 @@
 #include <sofa/core/objectmodel/DataFileName.h>
 #include "../extlibs/liteviz/dataloader.h"
 
+namespace sofa::core::objectmodel
+{
+
+/// Specialization for reading strings
+template<>
+bool Data<Eigen::MatrixXf>::read( const std::string& str );
+
+template<>
+std::string Data<Eigen::MatrixXf>::getValueString() const;
+
+}
+
 namespace sofa::pointcloud::components
 {
 using sofa::core::objectmodel::DataFileName;
@@ -38,7 +50,6 @@ public:
     PointCloudContainer();
     ~PointCloudContainer();
 
-
     DataFileName d_filename;
 
     void init() override;
@@ -46,14 +57,28 @@ public:
 
     void load(const std::string& filename, int max_sh_degree = 3);
 
-
     size_t size();
 
     void sort(const Eigen::Matrix4f& P,
               std::vector<float>& depths,
-              std::vector<int> &depth_index);
+              type::vector<int> &depth_indices);
 
+    void transform(const std::vector<defaulttype::Rigid3Types::Coord> &frames,
+                   const std::vector<std::vector<int>>& frameIndices,
+                   GaussianData* destination, bool inverseDir=false);
+
+    void updateDataFields();
+
+    GaussianData*    refData{nullptr};
     GaussianData*    data{nullptr};
+
+    Data<Eigen::MatrixXf> d_positions;
+    Data<Eigen::MatrixXf> d_orientations;
+    Data<Eigen::MatrixXf> d_scales;
+    Data<Eigen::MatrixXf> d_opacities;
+    Data<Eigen::MatrixXf> d_sphericalHarmonics;
+
+    Data<type::vector<int>> d_indices;
 
  private:
 };
