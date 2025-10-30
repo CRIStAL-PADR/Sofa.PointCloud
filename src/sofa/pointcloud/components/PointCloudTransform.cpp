@@ -94,7 +94,7 @@ void PointCloudTransform::update()
         destination->rot.row(vtxIndex)(2) = (worldOrientation).y();
         destination->rot.row(vtxIndex)(3) = (worldOrientation).z();
 
-        destination->scale.row(vtxIndex) *= scale;
+        destination->scale.row(vtxIndex) = source->scale.row(vtxIndex)*scale;
     }
 
     destination = l_output->data;
@@ -120,7 +120,7 @@ void PointCloudTransform::update()
         destination->rot.row(vtxIndex)(2) = (worldOrientation).y();
         destination->rot.row(vtxIndex)(3) = (worldOrientation).z();
 
-        destination->scale.row(vtxIndex) *= scale;
+        destination->scale.row(vtxIndex) = source->scale.row(vtxIndex)*scale;
     }
     l_output->updateDataFields();
 }
