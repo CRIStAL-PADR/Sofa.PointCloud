@@ -24,7 +24,7 @@
 #define TINYPLY_IMPLEMENTATION 1
 #include <sofa/pointcloud/components/PointCloudContainer.h>
 #include <sofa/core/ObjectFactory.h>
-
+#include <sofa/helper/system/FileRepository.h>
 #include <tbb/parallel_for.h>
 #include <tbb/parallel_sort.h>
 #include <Eigen/Geometry>
@@ -107,7 +107,8 @@ void PointCloudContainer::computeBBox(const core::ExecParams* params, bool onlyV
 
 void PointCloudContainer::load(const std::string& filename, int max_sh_degree)
 {
-    std::ifstream ss(filename, std::ios::binary);
+    std::string fullname = helper::system::DataRepository.getFile(filename);
+    std::ifstream ss(fullname, std::ios::binary);
     std::string fname(filename);
 
     if (fname.size() < 4 || fname.substr(fname.size() - 4) != ".ply") {
