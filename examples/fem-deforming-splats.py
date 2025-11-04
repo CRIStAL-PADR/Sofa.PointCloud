@@ -1,53 +1,20 @@
-import os
-import SofaRuntime
-p = os.path.abspath( os.path.join(os.getcwd(), "assets") )
-SofaRuntime.DataRepository.addFirstPath(p)  
-
-import Sofa
-from Sofa.Types import RGBAColor
-from splib3 import animation
 from psl import SofaScene, SofaPrefab, Object, Node, this_node, set
 
-import random
-
 import Sofa
-import math
 import json
-
-class CameraController(Sofa.Core.Controller):
-    def __init__(self, *args, **kwargs):
-        Sofa.Core.Controller.__init__(self, *args, **kwargs)
-        self.camera = kwargs.get("camera")
-    
-    def onKeypressedEvent(self, event):
-        if event["key"] == "1":
-            pass
-        print("EVENT ",event)
-        return True
-
-class OtherController(Sofa.Core.Controller):
-    def __init__(self, *args, **kwargs):
-        Sofa.Core.Controller.__init__(self, *args, **kwargs)
-        self.camera = kwargs.get("camera")
-    
-    def onKeypressedEvent(self, event):
-        if event["key"] == "1":
-            pass
-        print("EVENT ",event)
         
-
-
 @SofaPrefab
 def Camera(name):
     c = Object("InteractiveCamera", name="state", computeZClip=True, zFar=10000)    
     Object(CameraController(name="controller", camera=c))
 
 class IdentitySkinning(Sofa.Core.Controller):
+    """This controller initialze the references frames""" 
+
     def __init__(self, *args, **kwargs):
         Sofa.Core.Controller.__init__(self, *args, **kwargs)
         self.addData("indices", value=[0], default=[0], help="size", group="", type="vector<int>")
         self.container = kwargs.get("container")
-        self.renderer = kwargs.get("renderer")
         self.target = kwargs.get("target")
         self.initializeFrames()
         
@@ -60,20 +27,16 @@ class IdentitySkinning(Sofa.Core.Controller):
             w[:,0:3]  = self.container.positions.value[:,0:3]        
         self.indices = indices
 
-
 @SofaScene
 def createScene(root):
     Object("VisualStyle", displayFlags="showBehaviorModels showForceFields")  
+    Object("InteractiveCamera", name="camera", computeZClip=True, zFar=10000)    
+    
     with Node("Settings"):
         Object("BackgroundSetting", name="settings", color=[0.0,0.0,0.0,1.0])    
         with Node("Plugins"):
             Object("RequiredPlugin", name="Sofa.PointCloud")
-        Object(animation.AnimationManager(root))
-
-    Object("InteractiveCamera", name="camera", computeZClip=True, zFar=10000)    
-    root.addObject(CameraController(name="cameraController", camera=root.camera))
-    root.addObject(CameraController(name="dummyYummy", camera=root.camera))
-    
+            
     with Node("Modelling") as modelling:
         with Node("Beam") as beam:
             Object("RegularGridTopology", name="grid", min="-5 -5 0", max="5 5 40", n="5 5 20")
@@ -95,14 +58,16 @@ def createScene(root):
                 Object("BarycentricMapping", input_topology=beam.topology.linkpath)
 
     with Node("GaussianSplat") as gs:
-        Object("PointCloudContainer", name="loader", filename="assets/spot-cleaned.ply")
-        Object("PointCloudContainer", name="container", filename="assets/spot-cleaned.ply")
+        Object("PointCloudContainer", name="loader", filename="splats/spot.ply")
+        Object("PointCloudContainer", name="container", filename="splats/spot.ply")
         Object("PointCloudTransform", name="transform", input= gs.loader.linkpath,
                                                         output = gs.container.linkpath,
                                                         scale=[30,1,1],
-                                                        frame=[10, 10, 10,  -0.375,0.598,0.598,0.375])
+                                                        frame=[10, 10, 10, -0.375,0.598,0.598,0.375])
         gs.init()   
-        gs.addObject(IdentitySkinning(name="skinning", target=modelling.Beam.Frames.state, container=gs.container))
+        Object(IdentitySkinning, name="skinning", 
+                                 target=modelling.Beam.Frames.state, 
+                                 container=gs.container)
 
         Object("PointCloudRenderer",  name="renderer", 
                                       indices=gs.container.indices.value, 

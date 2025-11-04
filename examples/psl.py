@@ -12,6 +12,7 @@ depthLevel = 0
 nameContext = {}
 
 def piggypatcher_query(filename, lineno, scenepath, id):
+    return {}
     uid = f"{filename}_{lineno}_{scenepath}/{id}"
     uid = uid.replace("@/","root_")
     uid = uid.replace("/","_")
@@ -121,8 +122,14 @@ def Object(type, *args, **kwargs):
         kwargs = kwargs | nd 
         if len(nd) != 0:
             print("POS DUMP ", kwargs)
-        
-        object =  __nodestack__.top().addObject(type, *args, **kwargs)
+
+        if isinstance(type, Sofa.Core.Object):
+            __nodestack__.top().addObject(type)
+            object = type     
+        elif isinstance(type, str):
+            object =  __nodestack__.top().addObject(type, *args, **kwargs)
+        else:
+            object = __nodestack__.top().addObject(type(*args,**kwargs))
     except Exception:
         exc_type, exc_value, exc_tb = sys.exc_info()
         object =  __nodestack__.top().addObject(InvalidObject(name=f"UncreatableObject({type})"))
