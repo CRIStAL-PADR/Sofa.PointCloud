@@ -1,5 +1,21 @@
 from psl import Node, Object, SofaPrefab, SofaScene
 
+def setupScene(scene):
+    with Node("Settings"):
+        with Node("Plugins") as plugins: 
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.Constraint.Projective') # Needed to use components [FixedProjectiveConstraint]  
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.Engine.Select') # Needed to use components [BoxROI]  
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.LinearSolver.Iterative') # Needed to use components [CGLinearSolver]  
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.Mapping.Linear') # Needed to use components [BarycentricMapping]  
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.Mass') # Needed to use components [DiagonalMass]  
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.ODESolver.Backward') # Needed to use components [EulerImplicitSolver]  
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.SolidMechanics.FEM.Elastic') # Needed to use components [TetrahedronFEMForceField]  
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.StateContainer') # Needed to use components [MechanicalObject]  
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.Topology.Container.Dynamic') # Needed to use components [TetrahedronSetGeometryAlgorithms,TetrahedronSetTopologyContainer,TetrahedronSetTopologyModifier]  
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.Topology.Container.Grid') # Needed to use components [RegularGridTopology]  
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.Topology.Mapping') # Needed to use components [Hexa2TetraTopologicalMapping]  
+            plugins.addObject('RequiredPlugin', name='Sofa.Component.Visual') # Needed to use components [InteractiveCamera]
+
 @SofaPrefab
 def Beam(self):
         Object("RegularGridTopology", name="grid", min="-5 -5 0", max="5 5 20", n="5 5 20")
@@ -73,6 +89,8 @@ class RigidDofBuilder(Sofa.Core.DataEngine):
 
 @SofaScene
 def createScene(root):
+    root.apply(setupScene)
+
     Object("RequiredPlugin",name="Sofa.PointCloud")
     Object("InteractiveCamera", name="camera")
 
@@ -92,7 +110,6 @@ def createScene(root):
         Object("PointCloudTransform", name="transform", 
                                   input=this_node.loader.linkpath, 
                                   output=this_node.container.linkpath,
-                                  #frame=root.rigid_dof_builder.rigid.linkpath,
                                   frame=[12.53,0.12,1.38, 0.0199684, -0.0549613, 0.00109937, 0.998288],
                                   scale = [70,100,100])
         this_node.init()   
@@ -100,31 +117,30 @@ def createScene(root):
                                  target=modelling.beam.Frames.state, 
                                  container=this_node.container)
 
-        Object("PointCloudRenderer",  name="renderer", 
-                                      indices=this_node.container.indices.value, 
+        Object("PointCloudVisualModel", name="visualmodel", 
                                       geometry=this_node.container.linkpath,
+                                      indices=this_node.container.indices.value,
                                       frames=modelling.beam.Frames.state.position.linkpath,
-                                      frameIndices=this_node.skinning.indices.linkpath,
-                                      camera=root.camera.linkpath)
+                                      frameIndices=this_node.skinning.indices.linkpath)
 
+    Object("PointCloudRenderer",  name="renderer", 
+                                  camera=root.camera.linkpath)
+    root.renderer.printLog = True
 
     if True:
         with Node("Room") as this_node:
-          Object("PointCloudContainer",name="loader", filename="splats/defrost/room/office220.ply")
-          Object("PointCloudContainer",name="container", filename="splats/defrost/room/office220.ply")
+            Object("PointCloudContainer",name="loader", filename="splats/defrost/room/office220.ply")
+            Object("PointCloudContainer",name="container", filename="splats/defrost/room/office220.ply")
 
-          Object("PointCloudTransform", name="transform",
-                                    input=this_node.loader.linkpath,
-                                    output=this_node.container.linkpath,
-                                    frame=[12.53,0.12,1.38, 0.0199684, -0.0549613, 0.00109937, 0.998288],
-                                    scale = [70,100,100])
+            Object("PointCloudTransform", name="transform", 
+                                  input=this_node.loader.linkpath, 
+                                  output=this_node.container.linkpath,
+                                  frame=[12.53,0.12,1.38, 0.0199684, -0.0549613, 0.00109937, 0.998288],
+                                  scale = [70,100,100])
 
-          Object("PointCloudRenderer",  name="renderer",
-                                      indices=this_node.container.indices.value, 
+            Object("PointCloudVisualModel", name="visualmodel", 
                                       geometry=this_node.container.linkpath,
-                                      camera=root.camera.linkpath)
-
-
+                                      indices=this_node.container.indices.value)
 
     with Node("Simulation") as this_node:
         Object("EulerImplicitSolver", name="solver")

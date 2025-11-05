@@ -27,6 +27,7 @@ namespace sofa::pointcloud::components
     class PointCloudContainer;
     class PointCloudTransform;
     class PointCloudInspector;
+    class PointCloudVisualModel;
 }
 
 namespace sofa::core

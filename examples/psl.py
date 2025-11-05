@@ -11,6 +11,12 @@ currentNode = {}
 depthLevel = 0
 nameContext = {}
 
+def __apply(self : Sofa.Core.Node, typeName, **kwargs):
+    if not callable(typeName):
+        raise Exception("Invalid parameter")
+    return typeName(self, **kwargs)
+Sofa.Core.Node.apply = __apply
+
 def piggypatcher_query(filename, lineno, scenepath, id):
     return {}
     uid = f"{filename}_{lineno}_{scenepath}/{id}"

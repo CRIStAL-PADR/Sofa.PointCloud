@@ -16,6 +16,7 @@ set(HEADER_FILES
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudContainer.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudTransform.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRenderer.h
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.h
     extlibs/liteviz/dataloader.h
     extlibs/liteviz/renderer.h
@@ -29,6 +30,7 @@ set(SOURCE_FILES
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudContainer.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudTransform.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRenderer.cpp
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.cpp
 )
 
