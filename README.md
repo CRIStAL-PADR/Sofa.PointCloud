@@ -11,7 +11,7 @@ It enables the loading, manipulation, and rendering of **3D point clouds** (e.g.
 
 This plugin integrates seamlessly into SOFA scenes and can be combined with other simulation or visualization components.
 
-[![Watch the video](https://github.com/user-attachments/assets/b966ab18-ca10-4230-a582-1a4e9e329772)](https://studio.youtube.com/playlist/PLXhlzEXHKONM6hGw3cx-sIgVKAdVQFc4D/videos)
+[![Watch the video](https://github.com/user-attachments/assets/b966ab18-ca10-4230-a582-1a4e9e329772)](https://youtube.com/playlist?list=PLXhlzEXHKONM6hGw3cx-sIgVKAdVQFc4D&si=5uyvOKv-PZtP_D23)
 
 
 ---
