@@ -68,9 +68,11 @@ private:
     gl::GLSLShader      shader;
     GaussianData        renderingData;
 
-    void transform(const std::vector<defaulttype::Rigid3Types::Coord>& frames,
+    void transform(float uniformScale,
+                   const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
+                   const std::vector<defaulttype::Rigid3Types::Coord>& frames,
                    const std::vector<std::vector<int>>& frameIndices,
-                   Eigen::MatrixXf& positions, Eigen::MatrixXf& orientations);
+                   Eigen::MatrixXf& positions, Eigen::MatrixXf& orientations, Eigen::MatrixXf& scales);
 
     void sort(const Eigen::Matrix4f& P,
               const Eigen::MatrixXf& positions,

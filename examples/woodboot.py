@@ -105,29 +105,30 @@ def createScene(root):
 
     with Node("Visual") as this_node:
         Object("PointCloudContainer",name="loader", filename="splats/defrost/robots/woodstructure2.ply")
-        Object("PointCloudContainer",name="container", filename="splats/defrost/robots/woodstructure2.ply")
+        Object("PointCloudContainer",name="container1", filename="splats/defrost/robots/woodstructure2.ply")
 
         Object("PointCloudTransform", name="transform", 
                                   input=this_node.loader.linkpath, 
-                                  output=this_node.container.linkpath,
+                                  output=this_node.container1.linkpath,
                                   frame=[12.53,0.12,1.38, 0.0199684, -0.0549613, 0.00109937, 0.998288],
                                   scale = [70,100,100])
+
         this_node.init()   
         Object(IdentitySkinning, name="skinning", 
                                  target=modelling.beam.Frames.state, 
-                                 container=this_node.container)
+                                 container=this_node.container1)
 
         Object("PointCloudVisualModel", name="visualmodel", 
-                                      geometry=this_node.container.linkpath,
-                                      indices=this_node.container.indices.value,
-                                      frames=modelling.beam.Frames.state.position.linkpath,
-                                      frameIndices=this_node.skinning.indices.linkpath)
+                                        geometry=this_node.loader.linkpath,
+                                        frames=beam.Frames.state.position.linkpath,
+                                        frameIndices=this_node.skinning.indices.linkpath,
+                                        uniformScale = 70)
 
     Object("PointCloudRenderer",  name="renderer", 
                                   camera=root.camera.linkpath)
     root.renderer.printLog = True
 
-    if True:
+    if False:
         with Node("Room") as this_node:
             Object("PointCloudContainer",name="loader", filename="splats/defrost/room/office220.ply")
             Object("PointCloudContainer",name="container", filename="splats/defrost/room/office220.ply")
@@ -136,11 +137,10 @@ def createScene(root):
                                   input=this_node.loader.linkpath, 
                                   output=this_node.container.linkpath,
                                   frame=[12.53,0.12,1.38, 0.0199684, -0.0549613, 0.00109937, 0.998288],
-                                  scale = [70,100,100])
+                                  scale = [10,100,100])
 
             Object("PointCloudVisualModel", name="visualmodel", 
-                                      geometry=this_node.container.linkpath,
-                                      indices=this_node.container.indices.value)
+                                      geometry=this_node.loader.linkpath)
 
     with Node("Simulation") as this_node:
         Object("EulerImplicitSolver", name="solver")

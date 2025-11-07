@@ -20,59 +20,48 @@
 * Contact information: contact@sofa-framework.org                             *
 ******************************************************************************/
 #pragma once
-
+#include <sofa/simulation/Node.h>
 #include <sofa/pointcloud/config.h>
-#include <sofa/core/objectmodel/BaseObject.h>
-#include <sofa/core/objectmodel/DataFileName.h>
-#include "../extlibs/liteviz/liteviz/dataloader.h"
-
-namespace sofa::core::objectmodel
-{
-
-/// Specialization for reading strings
-template<>
-bool Data<Eigen::MatrixXf>::read( const std::string& str );
-
-template<>
-std::string Data<Eigen::MatrixXf>::getValueString() const;
-
-}
+#include <sofa/pointcloud/components/PointCloudContainer.h>
+#include <sofa/core/visual/VisualModel.h>
+#include <sofa/component/visual/BaseCamera.h>
+#include <sofa/gl/GLSLShader.h>
+#include <sofa/helper/SelectableItem.h>
+#include <ostream>
+#include <../extlibs/diff-gaussian-rasterization/cuda_rasterizer/rasterizer.h>
 
 namespace sofa::pointcloud::components
 {
-using sofa::core::objectmodel::DataFileName;
 using sofa::core::objectmodel::BaseObject;
+using sofa::component::visual::BaseCamera;
 
-class PointCloudContainer : public BaseObject {
+// References:
+//  - https://huggingface.co/blog/gaussian-splatting
+class PointCloudRendererCUDA : public sofa::core::visual::VisualModel
+{
+private:
+    template<class T>
+    using Link = core::objectmodel::SingleLink<PointCloudRendererCUDA, T, core::objectmodel::BaseLink::FLAG_STOREPATH>;
+
 public:
-    SOFA_CLASS(PointCloudContainer, BaseObject);
+    SOFA_CLASS(PointCloudRendererCUDA, BaseObject);
 
-    PointCloudContainer();
-    ~PointCloudContainer();
+    PointCloudRendererCUDA();
+    ~PointCloudRendererCUDA() override;
 
-    DataFileName d_filename;
+    Link<sofa::simulation::Node> l_targetNode;
+    Link<BaseCamera> l_camera;
+
+    Data<helper::OptionsGroup> d_renderMode;
 
     void init() override;
-    void computeBBox(const core::ExecParams* /* params */, bool /*onlyVisible*/=false) override;
 
-    void load(const std::string& filename, int max_sh_degree = 3);
+    void doInitVisual(const sofa::core::visual::VisualParams* vparams) final;
+    void doDrawVisual(const sofa::core::visual::VisualParams* vparams) final;
+    void doUpdateVisual(const sofa::core::visual::VisualParams* vparams) final;
 
-    size_t size();
-
-    void updateDataFields();
-
-    GaussianData*    data{nullptr};
-
-    Data<Eigen::MatrixXf> d_positions;
-    Data<Eigen::MatrixXf> d_orientations;
-    Data<Eigen::MatrixXf> d_scales;
-    Data<Eigen::MatrixXf> d_opacities;
-    Data<Eigen::MatrixXf> d_sphericalHarmonics;
-
-    Data<type::vector<int>> d_indices;
-
- private:
+private:
+    GaussianData        renderingData;
 };
-
 
 }

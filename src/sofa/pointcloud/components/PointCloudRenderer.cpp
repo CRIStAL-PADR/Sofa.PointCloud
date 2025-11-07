@@ -99,7 +99,6 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     auto vtx = helper::system::DataRepository.getFile("shaders/gaussian_splatting.vert");
     auto fg = helper::system::DataRepository.getFile("shaders/gaussian_splatting.frag");
 
-    std::cout << "Loading shader from " << vtx << ", " << fg << std::endl;
     auto vertexShader = readFile(vtx);
     auto fragmentShader = readFile(fg);
 
@@ -119,13 +118,11 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
 
     glGenBuffers(1, &_ssbo_splat);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat);
-    //glBufferData(GL_SHADER_STORAGE_BUFFER, flatData.size() * sizeof(float), flatData.data(), GL_STATIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     glGenBuffers(1, &_ssbo_index);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_index);
-    //glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.ref().data(), GL_STATIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_index);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
@@ -180,20 +177,22 @@ void PointCloudRenderer::sort(const Eigen::Matrix4f& P,
     });
 }
 
-void PointCloudRenderer::transform(const std::vector<defaulttype::Rigid3Types::Coord>& frames,
+void PointCloudRenderer::transform(float scale,
+                                   const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
+                                   const std::vector<defaulttype::Rigid3Types::Coord>& frames,
                                    const std::vector<std::vector<int>>& frameIndices,
-                                   Eigen::MatrixXf& positions, Eigen::MatrixXf& orientations)
+                                   Eigen::MatrixXf& positions, Eigen::MatrixXf& orientations, Eigen::MatrixXf& scales)
 {
     for(size_t frameIndex=0;frameIndex<frameIndices.size();++frameIndex)
     {
-        auto frameCenter = frames[frameIndex].getCenter();
-        auto frameOrientation = frames[frameIndex].getOrientation();
+        auto frameCenter = frames[frameIndex].getCenter(); // - initFrames[frameIndex].getCenter();
+        auto frameOrientation = frames[frameIndex].getOrientation();// - initFrames[frameIndex].getOrientation();
 
         auto T = Eigen::Translation<float,3>(frameCenter.x(), frameCenter.y(), frameCenter.z());
         auto R = Eigen::Quaternion<float>(frameOrientation[3], frameOrientation[0], frameOrientation[1], frameOrientation[2]);
+        auto S = Eigen::UniformScaling<float>(scale);
 
         auto transform = T*R;
-
         for(size_t i=0;i<frameIndices[frameIndex].size(); ++i)
         {
             auto vtxIndex = frameIndices[frameIndex][i];
@@ -208,6 +207,8 @@ void PointCloudRenderer::transform(const std::vector<defaulttype::Rigid3Types::C
             orientations.row(vtxIndex)(1) = (worldOrientation).x();
             orientations.row(vtxIndex)(2) = (worldOrientation).y();
             orientations.row(vtxIndex)(3) = (worldOrientation).z();
+
+            scales.row(vtxIndex) = scales.row(vtxIndex)*scale;
         }
     }
 }
@@ -265,7 +266,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
 
     // Aggreate the geometries...
     auto visualModels = l_targetNode->getTreeObjects<sofa::pointcloud::components::PointCloudVisualModel>();
-    msg_info() << "Found " << visualModels.size() << " gaussian splat visual models.";
+    msg_info() << "Found " << visualModels.size() << " gaussian splats visual models.";
     clear(renderingData);
     for(auto visual : visualModels)
     {
@@ -274,24 +275,31 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             continue;
         }
 
+        int offset = renderingData.xyz.rows();
         // First build the reference geometry
-        append(renderingData.xyz, visual->l_geometry->refData->xyz);
-        append(renderingData.sh, visual->l_geometry->refData->sh);
-        append(renderingData.opacity, visual->l_geometry->refData->opacity);
-        append(renderingData.scale, visual->l_geometry->refData->scale);
-        append(renderingData.rot, visual->l_geometry->refData->rot);
+        append(renderingData.xyz, visual->l_geometry->data->xyz);
+        append(renderingData.sh, visual->l_geometry->data->sh);
+        append(renderingData.opacity, visual->l_geometry->data->opacity);
+        append(renderingData.scale, visual->l_geometry->data->scale);
+        append(renderingData.rot, visual->l_geometry->data->rot);
 
+        auto scale = visual->d_uniformScale.getValue();
+        auto initFrames = visual->initFrames;
         auto frames = helper::getReadAccessor(visual->d_frames);
         auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
 
         std::vector<std::vector<int>> frameMap{frames.size()};
-        for(size_t i=0;i<frameIndices.size();i++)
-            frameMap[frameIndices[i]].push_back(i);
+        for(size_t i=0;i<frameIndices.size();++i)
+        {
+            frameMap[frameIndices[i]].push_back(offset+i);
+        }
 
         // Now we need to apply the transformation
-        this->transform(frames, frameMap, renderingData.xyz, renderingData.rot);
+        this->transform(scale,
+                        initFrames,
+                        frames, frameMap, renderingData.xyz, renderingData.rot,renderingData.scale);
     }
-    msg_info() << " BUFFER FOR RENDERING DATA IS " << renderingData.size() << " geometries ";
+    msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
 
     std::vector<int> indices = range(renderingData.size());
     depths.resize(indices.size());

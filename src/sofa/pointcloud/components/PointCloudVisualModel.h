@@ -52,8 +52,13 @@ public:
     Data<type::vector<int>> d_indices;
     Data<type::vector<defaulttype::Rigid3Types::Coord>> d_frames;
     Data<type::vector<int>> d_frameIndices;
+    Data<float> d_uniformScale;
 
     void init() override;
     void doInitVisual(const sofa::core::visual::VisualParams* vparams) final;
+
+public:
+    type::vector<defaulttype::Rigid3Types::Coord> initFrames;
+
 };
 }

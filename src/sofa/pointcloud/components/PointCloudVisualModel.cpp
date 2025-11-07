@@ -48,6 +48,7 @@ PointCloudVisualModel::PointCloudVisualModel() :
     , d_indices(initData(&d_indices, "indices", " the indices in the geometry to display"))
     , d_frames(initData(&d_frames, "frames", " set of frame controlling the geometry"))
     , d_frameIndices(initData(&d_frameIndices, "frameIndices", " the indice mapping a surfel to a frame"))
+    , d_uniformScale(initData(&d_uniformScale, 1.0f, "uniformScale", " scale factor to apply to whole shape"))
 {
     d_frames.setValue({defaulttype::Rigid3Types::Coord{{0.0,0.0,0.0},{0.0,0.0,0.0,1.0}}});
 }
@@ -67,14 +68,9 @@ void PointCloudVisualModel::init()
 void PointCloudVisualModel::doInitVisual(const sofa::core::visual::VisualParams* vparams)
 {
     SOFA_UNUSED(vparams);
+
     auto frames = helper::getReadAccessor(d_frames);
-    auto frameIndices = helper::getReadAccessor(d_frameIndices);
-
-    std::vector<std::vector<int>> frameMap{frames.size()};
-    for(size_t i=0;i<frameIndices.size();i++)
-        frameMap[frameIndices[i]].push_back(i);
-
-    l_geometry->transform(frames.ref(), frameMap, l_geometry->refData, true);
+    initFrames = d_frames.getValue();
 }
 
 }

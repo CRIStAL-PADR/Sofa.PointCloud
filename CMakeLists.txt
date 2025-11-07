@@ -16,12 +16,16 @@ set(HEADER_FILES
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudContainer.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudTransform.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRenderer.h
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererCUDA.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.h
-    extlibs/liteviz/dataloader.h
-    extlibs/liteviz/renderer.h
-    extlibs/liteviz/shader.h
-    extlibs/liteviz/utils.h
+    extlibs/liteviz-gs/liteviz/dataloader.h
+    extlibs/liteviz-gs/liteviz/renderer.h
+    extlibs/liteviz-gs/liteviz/shader.h
+    extlibs/liteviz-gs/liteviz/utils.h
+    extlibs/diff-gaussian-rasterization/cuda_rasterizer/rasterizer.h
+    extlibs/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.h
+    extlibs/diff-gaussian-rasterization/cuda_rasterizer/forward.h
 )
 
 set(SOURCE_FILES
@@ -32,6 +36,7 @@ set(SOURCE_FILES
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRenderer.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.cpp
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererCUDA.cpp
 )
 
 add_library(${PROJECT_NAME} SHARED ${HEADER_FILES} ${SOURCE_FILES})
