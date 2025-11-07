@@ -24,7 +24,7 @@
 #include <sofa/pointcloud/config.h>
 #include <sofa/core/objectmodel/BaseObject.h>
 #include <sofa/core/objectmodel/DataFileName.h>
-#include "../extlibs/liteviz/dataloader.h"
+#include "../extlibs/liteviz/liteviz/dataloader.h"
 
 namespace sofa::core::objectmodel
 {
@@ -59,17 +59,8 @@ public:
 
     size_t size();
 
-    void sort(const Eigen::Matrix4f& P,
-              std::vector<float>& depths,
-              type::vector<int> &depth_indices);
-
-    void transform(const std::vector<defaulttype::Rigid3Types::Coord> &frames,
-                   const std::vector<std::vector<int>>& frameIndices,
-                   GaussianData* destination, bool inverseDir=false);
-
     void updateDataFields();
 
-    GaussianData*    refData{nullptr};
     GaussianData*    data{nullptr};
 
     Data<Eigen::MatrixXf> d_positions;

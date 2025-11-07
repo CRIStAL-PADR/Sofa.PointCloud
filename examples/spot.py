@@ -18,7 +18,7 @@ class DofManipulator(Sofa.Core.Controller):
             ref = target.mechanical.state.rest_position.value
             with target.mechanical.state.position.writeableArray() as w:
                 for i in range(w.shape[0]):
-                    q = numerics.Quat.createFromAxisAngle([0,1,0],angle+float(i)*angle*0.2)
+                    q = numerics.Quat.createFromAxisAngle([0,0,1],angle+float(i)*angle*0.2)
                     x = numerics.Quat(ref[i,3:])
                     r = numerics.Quat.product(q,x)
                     w[i,3:]=r
@@ -34,15 +34,14 @@ def Spot(name, position):
             Object("MechanicalObject", name="state", template="Rigid3", 
                                        position=position)
             
-        with Node("renderer"):
+        with Node("visual"):
             geometry.splats.init()
             indices = [0]*len(geometry.splats.indices.value)
-            Object("PointCloudRenderer", name="renderer", 
+            Object("PointCloudVisualModel", name="renderer", 
                                         indices=geometry.splats.indices.linkpath, 
                                         geometry=geometry.splats.linkpath, 
                                         frames=mechanical.state.position.linkpath,
-                                        frameIndices=indices,
-                                        camera=spot.getRoot().camera.linkpath)
+                                        frameIndices=indices)
     return spot
 
 
@@ -53,12 +52,17 @@ def createScene(root):
     Object("RequiredPlugin", name="Sofa.PointCloud")
     Object("BackgroundSetting", name="settings", color=[0.0,0.0,0.0,1.0])    
     Object("InteractiveCamera", name="camera", computeZClip=False, zFar=1000)    
+    Object("PointCloudRenderer", name="renderer", camera=root.camera.linkpath)    
 
     Object(animation.AnimationManager(root))
 
     with Node("Modelling"):
         with Spot("spot1", position=[0,0,0,0,0,0,1]) as spot1:
             spot1.addObject(DofManipulator(name="manipulator", direction=1, target=spot1))
-
-        with Spot("spot2", position=[1,0,0,0,0,0,1]) as spot2:
+    
+        with Spot("spot2", position=[0,1,0,0,0,0,1]) as spot2:
             spot2.addObject(DofManipulator(name="manipulator", direction=-1, target=spot2))
+    
+    spot1.mechanical.state.showObject = True
+    spot2.mechanical.state.showObject = True
+

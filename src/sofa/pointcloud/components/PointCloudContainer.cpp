@@ -95,6 +95,9 @@ void PointCloudContainer::computeBBox(const core::ExecParams* params, bool onlyV
     SOFA_UNUSED(params);
     SOFA_UNUSED(onlyVisible);
 
+    if(isComponentStateInvalid())
+        return;
+
     type::BoundingBox box;
     auto points = data->xyz;
     for(int i=0;i<points.rows();++i)
@@ -189,7 +192,6 @@ void PointCloudContainer::load(const std::string& filename, int max_sh_degree)
         sh.col(3 + i) = load_vec(f_rest_list[i], N);
     }
 
-    refData = new GaussianData{ xyz, rot, scale, opac, sh };
     data = new GaussianData{ xyz, rot, scale, opac, sh };
 
     d_positions.setValue(xyz);
@@ -209,75 +211,21 @@ void PointCloudContainer::load(const std::string& filename, int max_sh_degree)
 
 size_t PointCloudContainer::size()
 {
+    if(isComponentStateInvalid())
+        return 0;
+
     return data->xyz.rows();
-}
-
-void PointCloudContainer::transform(const std::vector<defaulttype::Rigid3Types::Coord>& frames,
-                                    const std::vector<std::vector<int>>& frameIndices,
-                                    GaussianData* destination, bool inverseDir)
-{
-    for(size_t frameIndex=0;frameIndex<frameIndices.size();++frameIndex)
-    {
-        auto center = frames[frameIndex].getCenter();
-        auto orientation = frames[frameIndex].getOrientation();
-
-        auto T = Eigen::Translation<float,3>(center.x(), center.y(), center.z());
-        auto R = Eigen::Quaternion<float>(orientation[3], orientation[0], orientation[1], orientation[2]);
-
-        auto transform = T*R;
-
-        for(size_t i=0;i<frameIndices[frameIndex].size(); ++i)
-        {
-            auto vtxIndex = frameIndices[frameIndex][i];
-
-            Eigen::Vector3f worldPosition = ((refData->xyz.row(vtxIndex).transpose()));
-            if(inverseDir)
-                destination->xyz.row(vtxIndex) = transform.inverse() * worldPosition;
-            else
-                destination->xyz.row(vtxIndex) = transform * worldPosition;
-
-            auto tmp = refData->rot.row(vtxIndex);
-            Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
-            if(inverseDir)
-                worldOrientation = R.inverse() * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
-
-            destination->rot.row(vtxIndex)(0) = (worldOrientation).w();
-            destination->rot.row(vtxIndex)(1) = (worldOrientation).x();
-            destination->rot.row(vtxIndex)(2) = (worldOrientation).y();
-            destination->rot.row(vtxIndex)(3) = (worldOrientation).z();
-        }
-    }
-
-    d_positions.setValue(destination->xyz);
-    d_orientations.setValue(destination->rot);
-    d_scales.setValue(destination->scale);
 }
 
 void PointCloudContainer::updateDataFields()
 {
+    if(isComponentStateInvalid())
+        return;
+
     std::cout << "UPDATES INNER DATA " << std::endl;
     d_positions.setValue(data->xyz);
     d_orientations.setValue(data->rot);
     d_scales.setValue(data->scale);
 }
-
-void PointCloudContainer::sort(const Eigen::Matrix4f& P,
-                               std::vector<float>& depths,
-                               type::vector<int>& depth_indices)
-{
-    const Eigen::RowVector3f proj_row = P.row(2).head<3>();
-    for(size_t i=0;i<depth_indices.size(); ++i)
-    {
-        int sorted_idx = depth_indices[i];
-        Eigen::Vector3f center = (data->xyz.row(sorted_idx).transpose());
-        depths[sorted_idx] = proj_row.dot(center);
-    }
-
-    tbb::parallel_sort(depth_indices.begin(), depth_indices.end(),
-                       [&](int i, int j) {
-        return depths[i] < depths[j];
-    });
-}
-
 
 }

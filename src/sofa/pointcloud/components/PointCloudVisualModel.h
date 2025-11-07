@@ -1,0 +1,64 @@
+/******************************************************************************
+*                 SOFA, Simulation Open-Framework Architecture                *
+*                    (c) 2025 CNRS, INRIA, USTL, UJF, CNRS, MGH               *
+*                                                                             *
+* This program is free software; you can redistribute it and/or modify it     *
+* under the terms of the GNU Lesser General Public License as published by    *
+* the Free Software Foundation; either version 2.1 of the License, or (at     *
+* your option) any later version.                                             *
+*                                                                             *
+* This program is distributed in the hope that it will be useful, but WITHOUT *
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or       *
+* FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License *
+* for more details.                                                           *
+*                                                                             *
+* You should have received a copy of the GNU Lesser General Public License    *
+* along with this program. If not, see <http://www.gnu.org/licenses/>.        *
+*******************************************************************************
+* Authors: The SOFA Team and external contributors (see Authors.txt)          *
+*                                                                             *
+* Contact information: contact@sofa-framework.org                             *
+******************************************************************************/
+#pragma once
+
+#include <sofa/pointcloud/config.h>
+#include <sofa/pointcloud/components/PointCloudContainer.h>
+#include <sofa/core/visual/VisualModel.h>
+#include <sofa/component/visual/BaseCamera.h>
+#include <sofa/gl/GLSLShader.h>
+#include <sofa/helper/SelectableItem.h>
+#include <ostream>
+
+namespace sofa::pointcloud::components
+{
+using sofa::core::objectmodel::BaseObject;
+using sofa::component::visual::BaseCamera;
+
+// References:
+//  - https://huggingface.co/blog/gaussian-splatting
+class PointCloudVisualModel : public sofa::core::visual::VisualModel {
+private:
+    template<class T>
+    using Link = core::objectmodel::SingleLink<PointCloudVisualModel, T, core::objectmodel::BaseLink::FLAG_STOREPATH>;
+
+public:
+    SOFA_CLASS(PointCloudVisualModel, BaseObject);
+
+    PointCloudVisualModel();
+    ~PointCloudVisualModel() override;
+
+    Link<PointCloudContainer> l_geometry;
+
+    Data<type::vector<int>> d_indices;
+    Data<type::vector<defaulttype::Rigid3Types::Coord>> d_frames;
+    Data<type::vector<int>> d_frameIndices;
+    Data<float> d_uniformScale;
+
+    void init() override;
+    void doInitVisual(const sofa::core::visual::VisualParams* vparams) final;
+
+public:
+    type::vector<defaulttype::Rigid3Types::Coord> initFrames;
+
+};
+}

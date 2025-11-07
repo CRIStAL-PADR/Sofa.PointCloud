@@ -21,6 +21,7 @@
 ******************************************************************************/
 #include <sofa/pointcloud/fwd.h>
 #include <sofa/pointcloud/components/PointCloudRenderer.h>
+#include <sofa/pointcloud/components/PointCloudVisualModel.h>
 #include <sofa/core/visual/VisualParams.h>
 #include <sofa/core/ObjectFactory.h>
 #include <fstream>
@@ -44,14 +45,9 @@ namespace sofa::pointcloud::components
 {
 
 PointCloudRenderer::PointCloudRenderer() :
-      l_geometry(initLink("geometry", "link to the topology container"))
-    , l_camera(initLink("camera", "link to the camera used to render"))
-    , d_renderMode(initData(&d_renderMode, "color_sh_0", "renderMode", ""))
-    , d_translation(initData(&d_translation, {0.0,0.0,0.0}, "translation", ""))
-    , d_orientation(initData(&d_orientation, {0.0,0.0,0.0}, "orientation", ""))
-    , d_indices(initData(&d_indices, "indices", " the indices in the geometry to display"))
-    , d_frames(initData(&d_frames, "frames", " set of frame controlling the geometry"))
-    , d_frameIndices(initData(&d_frameIndices, "frameIndices", " the indice mapping a surfel to a frame"))
+    l_targetNode(initLink("targetNode", "Link to the node to start rendering from"))
+  , l_camera(initLink("camera", "link to the camera used to render"))
+  , d_renderMode(initData(&d_renderMode, "color_sh_0", "renderMode", ""))
 {
     helper::OptionsGroup methodOptions{"COLOR_SH_0",
                                        "COLOR_SH_1",
@@ -62,12 +58,9 @@ PointCloudRenderer::PointCloudRenderer() :
                                        "SURFEL"};
     methodOptions.setSelectedItem(0);
     d_renderMode.setValue(methodOptions);
-
-    d_frames.setValue({defaulttype::Rigid3Types::Coord{{0.0,0.0,0.0},{0.0,0.0,0.0,1.0}}});
 }
 
 namespace fs = std::filesystem;
-
 std::string readFile(fs::path path)
 {
     // Open the stream to 'lock' the file.
@@ -85,17 +78,14 @@ std::string readFile(fs::path path)
     return result;
 }
 
-PointCloudRenderer::~PointCloudRenderer()
-{
-}
+PointCloudRenderer::~PointCloudRenderer() {}
 
 void PointCloudRenderer::init()
 {
-    // Track the geometry component state
-    addUpdateCallback("update", {&l_geometry->d_componentState}, [this](const sofa::core::DataTracker&){
-        std::cout << "INN ER UPDATE " << std::endl;
-        return sofa::core::objectmodel::ComponentState::Valid;
-    }, {});
+    if(!l_targetNode)
+    {
+        l_targetNode.set(dynamic_cast<sofa::simulation::Node*>(getContext()));
+    }
 }
 
 void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vparams)
@@ -109,7 +99,6 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     auto vtx = helper::system::DataRepository.getFile("shaders/gaussian_splatting.vert");
     auto fg = helper::system::DataRepository.getFile("shaders/gaussian_splatting.frag");
 
-    std::cout << "Loading shader from " << vtx << ", " << fg << std::endl;
     auto vertexShader = readFile(vtx);
     auto fragmentShader = readFile(fg);
 
@@ -127,41 +116,101 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 8, _vertices.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-    if(l_geometry->isComponentStateInvalid())
-        return;
-
-    std::vector<float> flatData = l_geometry->data->flat();
     glGenBuffers(1, &_ssbo_splat);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, flatData.size() * sizeof(float), flatData.data(), GL_STATIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    depths.resize(l_geometry->size());
-
-    // Aouch, this is discutable use of public/privacy !
-    auto indices = helper::getWriteOnlyAccessor(d_indices);
-    indices.resize(l_geometry->size());
-    for(unsigned int i=0;i<depths.size();++i)
-    {
-        depths[i] = 0;
-        indices[i] = i;
-    }
-
     glGenBuffers(1, &_ssbo_index);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_index);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.ref().data(), GL_STATIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_index);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    auto frames = helper::getReadAccessor(d_frames);
-    auto frameIndices = helper::getReadAccessor(d_frameIndices);
+}
 
-    std::vector<std::vector<int>> frameMap{frames.size()};
-    for(size_t i=0;i<frameIndices.size();i++)
-        frameMap[frameIndices[i]].push_back(i);
+void PointCloudRenderer::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
+{
+    SOFA_UNUSED(vparams);
+}
 
-    l_geometry->transform(frames.ref(), frameMap, l_geometry->refData, true);
+void clear(GaussianData& data)
+{
+    data.xyz.resize(0, data.xyz.cols());
+    data.sh.resize(0, data.sh.cols());
+    data.opacity.resize(0, data.opacity.cols());
+    data.rot.resize(0, data.rot.cols());
+    data.scale.resize(0, data.scale.cols());
+}
+
+void append(Eigen::MatrixXf& dest, const Eigen::MatrixXf& src)
+{
+    assert(A.cols() == B.cols());
+
+    int oldRows = dest.rows();
+    dest.conservativeResize(dest.rows() + src.rows(), src.cols());
+    dest.block(oldRows, 0, src.rows(), src.cols()) = src;
+}
+
+std::vector<int> range(int maxSize)
+{
+    std::vector<int> tmp {maxSize};
+    for(auto i=0;i<maxSize;++i) tmp.emplace_back(i);
+    return tmp;
+}
+
+void PointCloudRenderer::sort(const Eigen::Matrix4f& P,
+                              const Eigen::MatrixXf& positions,
+                              std::vector<float>& depths,
+                              std::vector<int>& depth_indices)
+{
+    const Eigen::RowVector3f proj_row = P.row(2).head<3>();
+    for(size_t i=0;i<depth_indices.size(); ++i)
+    {
+        int sorted_idx = depth_indices[i];
+        Eigen::Vector3f center = (positions.row(sorted_idx).transpose());
+        depths[sorted_idx] = proj_row.dot(center);
+    }
+
+    tbb::parallel_sort(depth_indices.begin(), depth_indices.end(),
+                       [&](int i, int j) {
+        return depths[i] < depths[j];
+    });
+}
+
+void PointCloudRenderer::transform(float scale,
+                                   const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
+                                   const std::vector<defaulttype::Rigid3Types::Coord>& frames,
+                                   const std::vector<std::vector<int>>& frameIndices,
+                                   Eigen::MatrixXf& positions, Eigen::MatrixXf& orientations, Eigen::MatrixXf& scales)
+{
+    for(size_t frameIndex=0;frameIndex<frameIndices.size();++frameIndex)
+    {
+        auto frameCenter = frames[frameIndex].getCenter(); // - initFrames[frameIndex].getCenter();
+        auto frameOrientation = frames[frameIndex].getOrientation();// - initFrames[frameIndex].getOrientation();
+
+        auto T = Eigen::Translation<float,3>(frameCenter.x(), frameCenter.y(), frameCenter.z());
+        auto R = Eigen::Quaternion<float>(frameOrientation[3], frameOrientation[0], frameOrientation[1], frameOrientation[2]);
+        auto S = Eigen::UniformScaling<float>(scale);
+
+        auto transform = T*R;
+        for(size_t i=0;i<frameIndices[frameIndex].size(); ++i)
+        {
+            auto vtxIndex = frameIndices[frameIndex][i];
+
+            Eigen::Vector3f worldPosition = positions.row(vtxIndex).transpose();
+            positions.row(vtxIndex) = transform * worldPosition;
+
+            auto tmp = orientations.row(vtxIndex);
+            Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
+
+            orientations.row(vtxIndex)(0) = (worldOrientation).w();
+            orientations.row(vtxIndex)(1) = (worldOrientation).x();
+            orientations.row(vtxIndex)(2) = (worldOrientation).y();
+            orientations.row(vtxIndex)(3) = (worldOrientation).z();
+
+            scales.row(vtxIndex) = scales.row(vtxIndex)*scale;
+        }
+    }
 }
 
 void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
@@ -185,15 +234,9 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     Eigen::Vector2f tanxy (aspect * tanHalfFov, tanHalfFov);
     float focal = static_cast<float>(viewport[3]) / (tan((fov / 180.0f * M_PI) / 2.0f) * 2.0f);
 
-    int num_primitives = l_geometry->data->size();
-    float sh_dim = l_geometry->data->sh_dim();
     auto mode = d_renderMode.getValue().getSelectedId();
 
     defaulttype::Rigid3Types::Coord type;
-    type.getCenter() = d_translation.getValue();
-
-    auto t = d_orientation.getValue();
-    type.getOrientation() = type::Quatf::fromEuler(t[0],t[1],t[2]);
 
     vparams->drawTool()->pushMatrix();
     float glTransform[16];
@@ -205,7 +248,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
 
     projmat = dprojmat.cast<float>();
     viewmat = dviewmat.cast<float>();
-
 
     shader.TurnOn();
 
@@ -222,29 +264,60 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     shader.SetInt(shader.GetVariable("render_mod"), mode);
     shader.SetFloat(shader.GetVariable("scale_modifier"), scale_modifier);
 
-    auto indices = helper::getWriteAccessor(d_indices);
-    auto frames = helper::getReadAccessor(d_frames);
-    auto frameIndices = helper::getReadAccessor(d_frameIndices);
+    // Aggreate the geometries...
+    auto visualModels = l_targetNode->getTreeObjects<sofa::pointcloud::components::PointCloudVisualModel>();
+    msg_info() << "Found " << visualModels.size() << " gaussian splats visual models.";
+    clear(renderingData);
+    for(auto visual : visualModels)
+    {
+        if(!visual->l_geometry->data){
+            msg_warning() << " There is no data associated to gaussian model: "<<visual->l_geometry->getPathName();
+            continue;
+        }
 
-    std::vector<std::vector<int>> frameMap{frames.size()};
-    for(size_t i=0;i<frameIndices.size();i++)
-        frameMap[frameIndices[i]].push_back(i);
+        int offset = renderingData.xyz.rows();
+        // First build the reference geometry
+        append(renderingData.xyz, visual->l_geometry->data->xyz);
+        append(renderingData.sh, visual->l_geometry->data->sh);
+        append(renderingData.opacity, visual->l_geometry->data->opacity);
+        append(renderingData.scale, visual->l_geometry->data->scale);
+        append(renderingData.rot, visual->l_geometry->data->rot);
 
-    l_geometry->transform(frames.ref(), frameMap, l_geometry->data);
-    l_geometry->sort(viewmat, depths, indices.wref());
+        auto scale = visual->d_uniformScale.getValue();
+        auto initFrames = visual->initFrames;
+        auto frames = helper::getReadAccessor(visual->d_frames);
+        auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
+
+        std::vector<std::vector<int>> frameMap{frames.size()};
+        for(size_t i=0;i<frameIndices.size();++i)
+        {
+            frameMap[frameIndices[i]].push_back(offset+i);
+        }
+
+        // Now we need to apply the transformation
+        this->transform(scale,
+                        initFrames,
+                        frames, frameMap, renderingData.xyz, renderingData.rot,renderingData.scale);
+    }
+    msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
+
+    std::vector<int> indices = range(renderingData.size());
+    depths.resize(indices.size());
+
+    sort(viewmat, renderingData.xyz, depths, indices);
 
     glDisable(GL_CULL_FACE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    std::vector<float> flatData = l_geometry->data->flat();
+    std::vector<float> flatData = renderingData.flat();
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, flatData.size() * sizeof(float), flatData.data(), GL_STATIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, flatData.size() * sizeof(float), flatData.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_index);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.ref().data(), GL_STATIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_index);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
@@ -252,7 +325,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     glBindVertexArray(_vao);
     glEnableVertexAttribArray(0);
 
-    glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, 4, static_cast<int>(l_geometry->data->size()));
+    glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, 4, indices.size());
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glDisableVertexAttribArray(0);
 
@@ -263,8 +336,5 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     vparams->drawTool()->popMatrix();
 }
 
-void PointCloudRenderer::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
-{
-}
 
 }

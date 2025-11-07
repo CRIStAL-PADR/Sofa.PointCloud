@@ -68,8 +68,14 @@ void PointCloudTransform::update()
 {
     std::cout << "UPDATE ... " << std::endl;
 
+    if(l_input->isComponentStateInvalid())
+        return;
+
+    if(l_output->isComponentStateInvalid())
+        return;
+
     auto source = l_input->data;
-    auto destination = l_output->refData;
+    auto destination = l_output->data;
 
     auto frame = d_frame.getValue();
     auto center = frame.getCenter();
@@ -95,33 +101,9 @@ void PointCloudTransform::update()
         destination->rot.row(vtxIndex)(3) = (worldOrientation).z();
 
         destination->scale.row(vtxIndex) = source->scale.row(vtxIndex)*scale;
+
     }
 
-    destination = l_output->data;
-
-    frame = d_frame.getValue();
-    center = frame.getCenter();
-    orientation = frame.getOrientation();
-
-    T = Eigen::Translation<float,3>(center.x(), center.y(), center.z());
-    R = Eigen::Quaternion<float>(orientation[3], orientation[0], orientation[1], orientation[2]);
-
-    transform = T*R*S;
-
-    for(size_t vtxIndex=0;vtxIndex<source->xyz.rows(); ++vtxIndex)
-    {
-        Eigen::Vector3f worldPosition = ((source->xyz.row(vtxIndex).transpose()));
-        destination->xyz.row(vtxIndex) = transform * worldPosition;
-
-        auto tmp = source->rot.row(vtxIndex);
-        Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
-        destination->rot.row(vtxIndex)(0) = (worldOrientation).w();
-        destination->rot.row(vtxIndex)(1) = (worldOrientation).x();
-        destination->rot.row(vtxIndex)(2) = (worldOrientation).y();
-        destination->rot.row(vtxIndex)(3) = (worldOrientation).z();
-
-        destination->scale.row(vtxIndex) = source->scale.row(vtxIndex)*scale;
-    }
     l_output->updateDataFields();
 }
 

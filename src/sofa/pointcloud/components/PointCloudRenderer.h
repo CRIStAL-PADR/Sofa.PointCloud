@@ -20,7 +20,7 @@
 * Contact information: contact@sofa-framework.org                             *
 ******************************************************************************/
 #pragma once
-
+#include <sofa/simulation/Node.h>
 #include <sofa/pointcloud/config.h>
 #include <sofa/pointcloud/components/PointCloudContainer.h>
 #include <sofa/core/visual/VisualModel.h>
@@ -47,15 +47,10 @@ public:
     PointCloudRenderer();
     ~PointCloudRenderer() override;
 
-    Link<PointCloudContainer> l_geometry;
+    Link<sofa::simulation::Node> l_targetNode;
     Link<BaseCamera> l_camera;
 
     Data<helper::OptionsGroup> d_renderMode;
-    Data<type::Vec3> d_translation;
-    Data<type::Vec3> d_orientation;
-    Data<type::vector<int>> d_indices;
-    Data<type::vector<defaulttype::Rigid3Types::Coord>> d_frames;
-    Data<type::vector<int>> d_frameIndices;
 
     void init() override;
 
@@ -68,10 +63,20 @@ private:
     GLuint              _vbo;
     GLuint              _ssbo_splat;
     GLuint              _ssbo_index;
-    //RenderConfig        _config;
 
     std::vector<float>  depths;
-
     gl::GLSLShader      shader;
+    GaussianData        renderingData;
+
+    void transform(float uniformScale,
+                   const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
+                   const std::vector<defaulttype::Rigid3Types::Coord>& frames,
+                   const std::vector<std::vector<int>>& frameIndices,
+                   Eigen::MatrixXf& positions, Eigen::MatrixXf& orientations, Eigen::MatrixXf& scales);
+
+    void sort(const Eigen::Matrix4f& P,
+              const Eigen::MatrixXf& positions,
+              std::vector<float>& depths,
+              std::vector<int> &depth_indices);
 };
 }

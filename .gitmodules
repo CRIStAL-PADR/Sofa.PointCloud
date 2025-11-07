@@ -1,0 +1,6 @@
+[submodule "extlibs/diff-gaussian-rasterization"]
+	path = extlibs/diff-gaussian-rasterization
+	url = https://github.com/graphdeco-inria/diff-gaussian-rasterization/
+[submodule "extlibs/liteviz-gs"]
+	path = extlibs/liteviz-gs
+	url = https://github.com/panxkun/liteviz-gs
