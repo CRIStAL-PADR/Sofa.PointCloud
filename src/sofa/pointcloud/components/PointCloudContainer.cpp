@@ -86,8 +86,8 @@ void PointCloudContainer::init()
         return;
     }
 
-    load(d_filename.getValue());
-    d_componentState = core::objectmodel::ComponentState::Valid;
+    if( load(d_filename.getValue()) )
+        d_componentState = core::objectmodel::ComponentState::Valid;
 }
 
 void PointCloudContainer::computeBBox(const core::ExecParams* params, bool onlyVisible)
@@ -108,17 +108,19 @@ void PointCloudContainer::computeBBox(const core::ExecParams* params, bool onlyV
     f_bbox.setValue(box);
 }
 
-void PointCloudContainer::load(const std::string& filename, int max_sh_degree)
+bool PointCloudContainer::load(const std::string& filename, int max_sh_degree)
 {
     std::string fullname = helper::system::DataRepository.getFile(filename);
     std::ifstream ss(fullname, std::ios::binary);
     std::string fname(filename);
 
     if (fname.size() < 4 || fname.substr(fname.size() - 4) != ".ply") {
-        throw std::runtime_error("File is not a .ply file: " + fname);
+        msg_error() << "File is not a .ply file: " << fname;
+        return false;
     }
     if (!ss.is_open()) {
-        throw std::runtime_error("Failed to open file: " + fname);
+        msg_error() << "Failed to open file: " << fname;
+        return false;
     }
 
     PlyFile file;
@@ -207,6 +209,7 @@ void PointCloudContainer::load(const std::string& filename, int max_sh_degree)
     {
         indices[i] = i;
     }
+    return true;
 }
 
 size_t PointCloudContainer::size()

@@ -24,10 +24,12 @@
 #include <sofa/pointcloud/config.h>
 #include <sofa/core/objectmodel/BaseObject.h>
 #include <sofa/core/objectmodel/DataFileName.h>
-#include "../extlibs/liteviz/liteviz/dataloader.h"
+#include <fstream>
+#include <sofa/pointcloud/components/liteviz-dataloader.h>
 
 namespace sofa::core::objectmodel
 {
+
 
 /// Specialization for reading strings
 template<>
@@ -55,7 +57,7 @@ public:
     void init() override;
     void computeBBox(const core::ExecParams* /* params */, bool /*onlyVisible*/=false) override;
 
-    void load(const std::string& filename, int max_sh_degree = 3);
+    bool load(const std::string& filename, int max_sh_degree = 3);
 
     size_t size();
 
