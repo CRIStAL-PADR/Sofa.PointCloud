@@ -47,7 +47,7 @@ PointCloudVisualModel::PointCloudVisualModel() :
       l_geometry(initLink("geometry", "link to the topology container"))
     , d_indices(initData(&d_indices, "indices", " the indices in the geometry to display"))
     , d_frames(initData(&d_frames, "frames", " set of frame controlling the geometry"))
-    , d_frameIndices(initData(&d_frameIndices, "frameIndices", " the indice mapping a surfel to a frame"))
+    , d_frameIndices(initData(&d_frameIndices, "frameIndices", " the indice mapping each splats to a frame"))
     , d_uniformScale(initData(&d_uniformScale, 1.0f, "uniformScale", " scale factor to apply to whole shape"))
 {
     d_frames.setValue({defaulttype::Rigid3Types::Coord{{0.0,0.0,0.0},{0.0,0.0,0.0,1.0}}});
@@ -59,10 +59,35 @@ PointCloudVisualModel::~PointCloudVisualModel()
 
 void PointCloudVisualModel::init()
 {
+    Inherit1::init();
+
+    if(!l_geometry)
+    {
+        msg_error() << "Missing the geometry to render. To remove this message, set the link named 'geometry' so it point to a valid PointCloudContainer ";
+        d_componentState = sofa::core::objectmodel::ComponentState::Invalid;
+        return;
+    }
+
+    if(!l_geometry->isComponentStateValid())
+    {
+        msg_error() << "The geometry associated with this visual model is in an invalid state";
+        d_componentState = sofa::core::objectmodel::ComponentState::Invalid;
+        return;
+    }
+
+    if(l_geometry->data->size()==0)
+    {
+        msg_error() << " There is no data in the geometric gaussian model";
+        d_componentState = sofa::core::objectmodel::ComponentState::Invalid;
+        return;
+    }
+
     // Track the geometry component state
     addUpdateCallback("update", {&l_geometry->d_componentState}, [this](const sofa::core::DataTracker&){
         return sofa::core::objectmodel::ComponentState::Valid;
     }, {});
+
+    d_componentState = sofa::core::objectmodel::ComponentState::Valid;
 }
 
 void PointCloudVisualModel::doInitVisual(const sofa::core::visual::VisualParams* vparams)

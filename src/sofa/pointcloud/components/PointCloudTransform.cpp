@@ -55,6 +55,7 @@ PointCloudTransform::~PointCloudTransform()
 
 void PointCloudTransform::init()
 {
+    Inherit1::init();
     update();
     d_componentState = core::objectmodel::ComponentState::Valid;
 
