@@ -82,8 +82,20 @@ void PointCloudVisualModel::init()
         return;
     }
 
+    if(d_frameIndices.getValue().size()==0)
+    {
+        auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
+        frames.resize(l_geometry->data->size(), 0);
+    }
+
     // Track the geometry component state
     addUpdateCallback("update", {&l_geometry->d_componentState}, [this](const sofa::core::DataTracker&){
+        if(d_frameIndices.getValue().size()!=l_geometry->data->size())
+        {
+            auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
+            frames.resize(l_geometry->data->size(), 0);
+        }
+
         return sofa::core::objectmodel::ComponentState::Valid;
     }, {});
 
