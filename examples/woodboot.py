@@ -104,8 +104,8 @@ def createScene(root):
             beam.state.showObjectScale = 1.0
 
     with Node("Visual") as this_node:
-        Object("PointCloudContainer",name="loader", filename="splats/defrost/robots/woodstructure2.ply")
-        Object("PointCloudContainer",name="container1", filename="splats/defrost/robots/woodstructure2.ply")
+        Object("PointCloudContainer",name="loader", filename="splats/woodstructure.ply")
+        Object("PointCloudContainer",name="container1", filename="splats/woodstructure.ply")
 
         Object("PointCloudTransform", name="transform", 
                                   input=this_node.loader.linkpath, 
