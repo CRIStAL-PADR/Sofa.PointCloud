@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+
+<Node>
+    <RequiredPlugin name="Sofa.PointCloud"/>
+   
+    <InteractiveCamera name="camera"/>
+    <PointCloudRenderer camera="@camera"/> 
+
+    <EulerImplicitSolver/>
+    <SparseLDLSolver/> 
+    
+    <MechanicalObject name="state" template="Rigid3" showObject="true"/> 
+    <UniformMass totalMass="3"/> 	
+    <PointCloudContainer name="container1" filename="splats/spot.ply"/> 
+    <PointCloudVisualModel name="visual" geometry="@container1" frames="@state.position"/> 
+</Node>
