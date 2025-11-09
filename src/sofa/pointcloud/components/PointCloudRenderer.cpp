@@ -82,6 +82,7 @@ PointCloudRenderer::~PointCloudRenderer() {}
 
 void PointCloudRenderer::init()
 {
+    Inherit1::init();
     if(!l_targetNode)
     {
         l_targetNode.set(dynamic_cast<sofa::simulation::Node*>(getContext()));
@@ -222,9 +223,56 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     Eigen::Matrix4d dprojmat;
     Eigen::Matrix4d dviewmat;
 
+    // If there is no camera, then we cannot draw the scene.
     if(!l_camera)
         return;
 
+    // Aggreate the geometries by traversing the scene tree
+    auto visualModels = l_targetNode->getTreeObjects<sofa::pointcloud::components::PointCloudVisualModel>();
+    msg_info() << "Found " << visualModels.size() << " gaussian splats visual models.";
+    clear(renderingData);
+    for(auto visual : visualModels)
+    {
+        if(!visual->isComponentStateValid()){
+            continue;
+        }
+
+        if(!visual->l_geometry->data){
+            continue;
+        }
+        int offset = renderingData.xyz.rows();
+
+        // First build the reference geometry
+        append(renderingData.xyz, visual->l_geometry->data->xyz);
+        append(renderingData.sh, visual->l_geometry->data->sh);
+        append(renderingData.opacity, visual->l_geometry->data->opacity);
+        append(renderingData.scale, visual->l_geometry->data->scale);
+        append(renderingData.rot, visual->l_geometry->data->rot);
+
+        auto scale = visual->d_uniformScale.getValue();
+        auto initFrames = visual->initFrames;
+        auto frames = helper::getReadAccessor(visual->d_frames);
+        auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
+
+        std::vector<std::vector<int>> frameMap{frames.size()};
+        for(size_t i=0;i<frameIndices.size();++i)
+        {
+            frameMap[frameIndices[i]].push_back(offset+i);
+        }
+
+        // Now we need to apply the transformation
+        this->transform(scale,
+                        initFrames,
+                        frames, frameMap, renderingData.xyz, renderingData.rot,renderingData.scale);
+    }
+    msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
+
+    // In case there is not rendering data, then just exit
+    if(renderingData.size()==0)
+        return;
+
+    // Here we have geometries to draw and a camera that look at it.
+    // We first send the camera parameters to the gl rendering backend, then the geometries.
     auto c = l_camera->getPosition();
     Eigen::Vector3f cam_pos {c[0],c[1],c[2]};
 
@@ -263,43 +311,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     shader.SetInt(shader.GetVariable("max_sh_dim"), max_sh_dim);
     shader.SetInt(shader.GetVariable("render_mod"), mode);
     shader.SetFloat(shader.GetVariable("scale_modifier"), scale_modifier);
-
-    // Aggreate the geometries...
-    auto visualModels = l_targetNode->getTreeObjects<sofa::pointcloud::components::PointCloudVisualModel>();
-    msg_info() << "Found " << visualModels.size() << " gaussian splats visual models.";
-    clear(renderingData);
-    for(auto visual : visualModels)
-    {
-        if(!visual->l_geometry->data){
-            msg_warning() << " There is no data associated to gaussian model: "<<visual->l_geometry->getPathName();
-            continue;
-        }
-
-        int offset = renderingData.xyz.rows();
-        // First build the reference geometry
-        append(renderingData.xyz, visual->l_geometry->data->xyz);
-        append(renderingData.sh, visual->l_geometry->data->sh);
-        append(renderingData.opacity, visual->l_geometry->data->opacity);
-        append(renderingData.scale, visual->l_geometry->data->scale);
-        append(renderingData.rot, visual->l_geometry->data->rot);
-
-        auto scale = visual->d_uniformScale.getValue();
-        auto initFrames = visual->initFrames;
-        auto frames = helper::getReadAccessor(visual->d_frames);
-        auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
-
-        std::vector<std::vector<int>> frameMap{frames.size()};
-        for(size_t i=0;i<frameIndices.size();++i)
-        {
-            frameMap[frameIndices[i]].push_back(offset+i);
-        }
-
-        // Now we need to apply the transformation
-        this->transform(scale,
-                        initFrames,
-                        frames, frameMap, renderingData.xyz, renderingData.rot,renderingData.scale);
-    }
-    msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
 
     std::vector<int> indices = range(renderingData.size());
     depths.resize(indices.size());

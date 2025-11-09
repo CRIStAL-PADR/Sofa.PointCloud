@@ -81,13 +81,18 @@ PointCloudContainer::~PointCloudContainer()
 
 void PointCloudContainer::init()
 {
+    Inherit1::init();
     if(!d_filename.isSet() || d_filename.getValue() == ""){
         d_componentState = core::objectmodel::ComponentState::Invalid;
         return;
     }
 
-    if( load(d_filename.getValue()) )
-        d_componentState = core::objectmodel::ComponentState::Valid;
+    if( !load(d_filename.getValue()) ){
+        d_componentState = core::objectmodel::ComponentState::Invalid;
+        return;
+    }
+
+    d_componentState = core::objectmodel::ComponentState::Valid;
 }
 
 void PointCloudContainer::computeBBox(const core::ExecParams* params, bool onlyVisible)
@@ -225,7 +230,6 @@ void PointCloudContainer::updateDataFields()
     if(isComponentStateInvalid())
         return;
 
-    std::cout << "UPDATES INNER DATA " << std::endl;
     d_positions.setValue(data->xyz);
     d_orientations.setValue(data->rot);
     d_scales.setValue(data->scale);

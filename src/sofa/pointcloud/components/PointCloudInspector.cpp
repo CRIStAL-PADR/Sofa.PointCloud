@@ -84,6 +84,7 @@ void PointCloudInspector::draw(const sofa::core::visual::VisualParams* params)
 
 void PointCloudInspector::init()
 {
+    Inherit1::init();
     d_componentState = core::objectmodel::ComponentState::Valid;
 }
 
