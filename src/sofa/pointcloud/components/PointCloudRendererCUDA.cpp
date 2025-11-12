@@ -79,15 +79,95 @@ void PointCloudRendererCUDA::doUpdateVisual(const sofa::core::visual::VisualPara
     SOFA_UNUSED(vparams);
 }
 
+std::function<char*(size_t N)> resizeFunctional(std::vector<float> t) {
+    auto lambda = [&t](size_t N) {
+        t.resize(N);
+        return reinterpret_cast<char*>(t.data());
+    };
+    return lambda;
+}
+
 void PointCloudRendererCUDA::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
 {
-//    static void markVisible(
-//        int P,
-//        float* means3D,
-//        float* viewmatrix,
-//        float* projmatrix,
-//        bool* present);
+    //    static void markVisible(
+    //        int P,
+    //        float* means3D,
+    //        float* viewmatrix,
+    //        float* projmatrix,
+    //        bool* present);
 
+    auto viewport = vparams->viewport();
+
+    Eigen::Matrix4f projmat;
+    Eigen::Matrix4f viewmat;
+    Eigen::Matrix4d dprojmat;
+    Eigen::Matrix4d dviewmat;
+
+    // If there is no camera, then we cannot draw the scene.
+    if(!l_camera)
+        return;
+
+    // Here we have geometries to draw and a camera that look at it.
+    // We first send the camera parameters to the gl rendering backend, then the geometries.
+    auto c = l_camera->getPosition();
+    Eigen::Vector3f cam_pos {c[0],c[1],c[2]};
+
+    float fov = l_camera->getFieldOfView();
+    float tanHalfFov = tan((fov / 180.0 * M_PI) / 2.0f);
+    float aspect = static_cast<float>(viewport[2]) / viewport[3];
+    Eigen::Vector2f tanxy (aspect * tanHalfFov, tanHalfFov);
+    float focal = static_cast<float>(viewport[3]) / (tan((fov / 180.0f * M_PI) / 2.0f) * 2.0f);
+
+    auto mode = d_renderMode.getValue().getSelectedId();
+
+    defaulttype::Rigid3Types::Coord type;
+
+    vparams->drawTool()->pushMatrix();
+    float glTransform[16];
+    type.writeOpenGlMatrix ( glTransform );
+    Eigen::Matrix4f transform {glTransform };
+
+    vparams->getModelViewMatrix(dviewmat.data());
+    vparams->getProjectionMatrix(dprojmat.data());
+
+    projmat = dprojmat.cast<float>();
+    viewmat = dviewmat.cast<float>();
+
+    std::vector<float> geomBuffer;
+    std::vector<float> binningBuffer;
+    std::vector<float> imgBuffer;
+
+    std::function<char*(size_t)> geomFunc = resizeFunctional(geomBuffer);
+    std::function<char*(size_t)> binningFunc = resizeFunctional(binningBuffer);
+    std::function<char*(size_t)> imgFunc = resizeFunctional(imgBuffer);
+
+#if 0
+    CudaRasterizer::Rasterizer::forward(
+                geomFunc,    //        std::function<char* (size_t)> geometryBuffer,
+                binningFunc, //        std::function<char* (size_t)> binningBuffer,
+                imgFunc,     //        std::function<char* (size_t)> imageBuffer,
+                renderingData.xyz.size(),  // const int P => Nombre de point ?
+                0,                         // const int D => degré des harmonique sphériques ?
+                0,                         // const int M => nombre max de coéfficien  en lien avec .sh ?
+                nullptr,                   // const float* background,
+                viewport[2],               // const int width,
+                viewport[3],              // const int height,
+                renderingData.xyz.,  // const float* means3D,
+                renderingData.sh.rows(),   // const flo  at* shs,
+                nullptr,                   //        const float* colors_precomp,
+                renderingData.opacity.rows(), //       const float* opacities,
+                renderingData.scale.rows(),   //        const float* scales,
+                1.0,     //        const float scale_modifier,
+                renderingData.rot.rows(),  //        const float* rotations,
+                nullptr, //        const float* cov3D_precomp,
+                viewmat, //        const float* viewmatrix,
+                projmat, //        const float* projmatrix,
+                cam_pos, //        const float* cam_pos,
+                tanxy[0], tanxy[1], //        const float tan_fovx, float tan_fovy,
+                false,   //        const bool prefiltered,
+                nullptr  //        float* out_color,
+                );
+#endif
 //    static int forward(
 //        std::function<char* (size_t)> geometryBuffer,
 //        std::function<char* (size_t)> binningBuffer,
