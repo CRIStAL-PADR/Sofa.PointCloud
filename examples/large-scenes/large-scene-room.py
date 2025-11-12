@@ -7,10 +7,11 @@ def createScene(root):
     root.addChild("PointCloud")
     root.PointCloud.addChild("Geometry")
     root.PointCloud.Geometry.addObject("PointCloudContainer", name="pc1", filename="splats/drjhonson.ply")
+    root.PointCloud.addObject("PointCloudVisualModel", geometry=root.PointCloud.Geometry.pc1.linkpath)
 
     root.PointCloud.addChild("Renderer")
-    root.PointCloud.Renderer.addObject("PointCloudRenderer", 
+    root.PointCloud.addObject("PointCloudRenderer", 
                                         name="renderer", 
-                                        indices=root.PointCloud.Geometry.pc1.indices.value, 
-                                        geometry=root.PointCloud.Geometry.pc1.linkpath, 
                                         camera=root.camera.linkpath)
+    
+

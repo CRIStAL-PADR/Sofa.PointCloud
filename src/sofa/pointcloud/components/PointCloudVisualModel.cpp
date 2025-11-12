@@ -68,10 +68,10 @@ void PointCloudVisualModel::init()
         return;
     }
 
-    if(d_frameIndices.getValue().size()==0)
+    if(d_frameIndices.getValue().size()==0 && l_geometry->data)
     {
-            auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
-            frames.resize(l_geometry->data->size(), 0);
+        auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
+        frames.resize(l_geometry->data->size(), 0);
     }
 
     // Track the geometry component state
@@ -81,8 +81,6 @@ void PointCloudVisualModel::init()
             msg_warning() << "The geometry associated with this visual model is in an invalid state";
             return sofa::core::objectmodel::ComponentState::Invalid;
         }
-
-        std::cout << "RENDERING UPDTE" << std::endl;
 
         if(d_frameIndices.getValue().size()!=l_geometry->data->size())
         {
