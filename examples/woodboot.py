@@ -128,20 +128,6 @@ def createScene(root):
                                   camera=root.camera.linkpath)
     root.renderer.printLog = True
 
-    if False:
-        with Node("Room") as this_node:
-            Object("PointCloudContainer",name="loader", filename="splats/defrost/room/office220.ply")
-            Object("PointCloudContainer",name="container", filename="splats/defrost/room/office220.ply")
-
-            Object("PointCloudTransform", name="transform", 
-                                  input=this_node.loader.linkpath, 
-                                  output=this_node.container.linkpath,
-                                  frame=[12.53,0.12,1.38, 0.0199684, -0.0549613, 0.00109937, 0.998288],
-                                  scale = [10,100,100])
-
-            Object("PointCloudVisualModel", name="visualmodel", 
-                                      geometry=this_node.loader.linkpath)
-
     with Node("Simulation") as this_node:
         Object("EulerImplicitSolver", name="solver")
         Object("CGLinearSolver", name="solver")

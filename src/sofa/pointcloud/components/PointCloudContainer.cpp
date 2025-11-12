@@ -233,6 +233,7 @@ void PointCloudContainer::updateDataFields()
     d_positions.setValue(data->xyz);
     d_orientations.setValue(data->rot);
     d_scales.setValue(data->scale);
+    d_componentState = core::objectmodel::ComponentState::Valid;
 }
 
 }

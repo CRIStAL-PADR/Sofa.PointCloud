@@ -55,7 +55,7 @@ public:
     Data<float> d_uniformScale;
 
     void init() override;
-    void doInitVisual(const sofa::core::visual::VisualParams* vparams) final;
+    void doUpdateVisual(const sofa::core::visual::VisualParams* vparams) final;
 
 public:
     type::vector<defaulttype::Rigid3Types::Coord> initFrames;

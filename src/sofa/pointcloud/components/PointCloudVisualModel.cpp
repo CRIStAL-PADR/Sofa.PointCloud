@@ -68,28 +68,22 @@ void PointCloudVisualModel::init()
         return;
     }
 
-    if(!l_geometry->isComponentStateValid())
-    {
-        msg_error() << "The geometry associated with this visual model is in an invalid state";
-        d_componentState = sofa::core::objectmodel::ComponentState::Invalid;
-        return;
-    }
-
-    if(l_geometry->data->size()==0)
-    {
-        msg_error() << " There is no data in the geometric gaussian model";
-        d_componentState = sofa::core::objectmodel::ComponentState::Invalid;
-        return;
-    }
-
     if(d_frameIndices.getValue().size()==0)
     {
-        auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
-        frames.resize(l_geometry->data->size(), 0);
+            auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
+            frames.resize(l_geometry->data->size(), 0);
     }
 
     // Track the geometry component state
     addUpdateCallback("update", {&l_geometry->d_componentState}, [this](const sofa::core::DataTracker&){
+        if(!l_geometry->isComponentStateValid())
+        {
+            msg_warning() << "The geometry associated with this visual model is in an invalid state";
+            return sofa::core::objectmodel::ComponentState::Invalid;
+        }
+
+        std::cout << "RENDERING UPDTE" << std::endl;
+
         if(d_frameIndices.getValue().size()!=l_geometry->data->size())
         {
             auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
@@ -97,17 +91,15 @@ void PointCloudVisualModel::init()
         }
 
         return sofa::core::objectmodel::ComponentState::Valid;
-    }, {});
+    }, {&d_frameIndices});
 
     d_componentState = sofa::core::objectmodel::ComponentState::Valid;
 }
 
-void PointCloudVisualModel::doInitVisual(const sofa::core::visual::VisualParams* vparams)
+void PointCloudVisualModel::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
 {
     SOFA_UNUSED(vparams);
-
-    auto frames = helper::getReadAccessor(d_frames);
-    initFrames = d_frames.getValue();
+    d_frameIndices.updateIfDirty();
 }
 
 }

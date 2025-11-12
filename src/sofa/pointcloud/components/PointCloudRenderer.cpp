@@ -233,6 +233,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     clear(renderingData);
     for(auto visual : visualModels)
     {
+        visual->updateVisual(vparams);
         if(!visual->isComponentStateValid()){
             continue;
         }
