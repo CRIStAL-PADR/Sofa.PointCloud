@@ -36,12 +36,13 @@ This plugin integrates seamlessly into SOFA scenes and can be combined with othe
 ---
 
 ## Installation
-### 0. Sofa Version
+
+### 1. SOFA Version
 The plugin is in developement so it should compile with the master version of SOFA. 
 Tested on Sofa.Qt runSOFA version as well as runSOFAGFLW.
 If you use SofaGFLWImGUI, you need to merge this bugfix: https://github.com/sofa-framework/SofaGLFW/pull/245
 
-### 1. Clone the repository
+### 2. Clone the repository
 ```bash
 git clone --recurse-submodules https://github.com/<user>/Sofa.PointCloud.git
 cd Sofa.PointCloud
@@ -52,7 +53,7 @@ If you already cloned the repository without submodules, initialize them manuall
 git submodule update --init --recursive
 ```
 
-### 2. Compilation
+### 3. Compilation
 Add the plugin in your existing compilation workflow and compile it. 
 
 ## Execution
