@@ -68,6 +68,8 @@ private:
     gl::GLSLShader      shader;
     GaussianData        renderingData;
 
+    std::map<unsigned int, std::vector<int>> directionalIndices;
+
     void transform(float uniformScale,
                    const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
                    const std::vector<defaulttype::Rigid3Types::Coord>& frames,

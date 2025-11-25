@@ -53,11 +53,14 @@ public:
     Data<type::vector<defaulttype::Rigid3Types::Coord>> d_frames;
     Data<type::vector<int>> d_frameIndices;
     Data<float> d_uniformScale;
+    Data<bool> d_isStaticModel;
+    Data<bool> d_doInit;
 
     void init() override;
     void doUpdateVisual(const sofa::core::visual::VisualParams* vparams) final;
 
 public:
+    void initTransform();
     type::vector<defaulttype::Rigid3Types::Coord> initFrames;
 
 };

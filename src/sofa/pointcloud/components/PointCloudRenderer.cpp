@@ -126,7 +126,6 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_index);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_index);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
 }
 
 void PointCloudRenderer::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
@@ -150,6 +149,15 @@ void append(Eigen::MatrixXf& dest, const Eigen::MatrixXf& src)
     int oldRows = dest.rows();
     dest.conservativeResize(dest.rows() + src.rows(), src.cols());
     dest.block(oldRows, 0, src.rows(), src.cols()) = src;
+}
+
+void append(GaussianData& dest, const GaussianData& src)
+{
+    append(dest.xyz, src.xyz);
+    append(dest.sh, src.sh);
+    append(dest.opacity, src.opacity);
+    append(dest.scale, src.scale);
+    append(dest.rot, src.rot);
 }
 
 std::vector<int> range(int maxSize)
@@ -214,6 +222,36 @@ void PointCloudRenderer::transform(float scale,
     }
 }
 
+int calcOrder( const sofa::type::Vec3& dir )
+{
+    int signs;
+
+    const int   sx = dir.x()<0.0_sreal;
+    const int   sy = dir.y()<0.0_sreal;
+    const int   sz = dir.z()<0.0_sreal;
+    const float ax = rabs( dir.x() );
+    const float ay = rabs( dir.y() );
+    const float az = rabs( dir.z() );
+
+    if( ax>ay && ax>az )
+    {
+        if( ay>az ) signs = 0 + ((sx<<2)|(sy<<1)|sz);
+        else        signs = 8 + ((sx<<2)|(sz<<1)|sy);
+    }
+    else if( ay>az )
+    {
+        if( ax>az ) signs = 16 + ((sy<<2)|(sx<<1)|sz);
+        else        signs = 24 + ((sy<<2)|(sz<<1)|sx);
+    }
+    else
+    {
+        if( ax>ay ) signs = 32 + ((sz<<2)|(sx<<1)|sy);
+        else        signs = 40 + ((sz<<2)|(sy<<1)|sx);
+    }
+
+    return signs;
+}
+
 void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
 {
     auto viewport = vparams->viewport();
@@ -230,44 +268,65 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     // Aggreate the geometries by traversing the scene tree
     auto visualModels = l_targetNode->getTreeObjects<sofa::pointcloud::components::PointCloudVisualModel>();
     msg_info() << "Found " << visualModels.size() << " gaussian splats visual models.";
-    clear(renderingData);
-    for(auto visual : visualModels)
+
+    static bool isFirstRun = true;
+    static bool hasStaticData=false;
+
+    if(!hasStaticData)
     {
-        visual->updateVisual(vparams);
-        if(!visual->isComponentStateValid()){
-            continue;
-        }
+        clear(renderingData);
 
-        if(!visual->l_geometry->data){
-            continue;
-        }
-        int offset = renderingData.xyz.rows();
-
-        // First build the reference geometry
-        append(renderingData.xyz, visual->l_geometry->data->xyz);
-        append(renderingData.sh, visual->l_geometry->data->sh);
-        append(renderingData.opacity, visual->l_geometry->data->opacity);
-        append(renderingData.scale, visual->l_geometry->data->scale);
-        append(renderingData.rot, visual->l_geometry->data->rot);
-
-        auto scale = visual->d_uniformScale.getValue();
-        auto initFrames = visual->initFrames;
-        auto frames = helper::getReadAccessor(visual->d_frames);
-        auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
-
-        std::vector<std::vector<int>> frameMap{frames.size()};
-        for(size_t i=0;i<frameIndices.size();++i)
+        for(auto visual : visualModels)
         {
-            frameMap[frameIndices[i]].push_back(offset+i);
-        }
+            visual->updateVisual(vparams);
 
-        // Now we need to apply the transformation
-        this->transform(scale,
-                        initFrames,
-                        frames, frameMap, renderingData.xyz, renderingData.rot,renderingData.scale);
+            if(!visual->isComponentStateValid()){
+                continue;
+            }
+
+            if(!visual->l_geometry->data){
+                continue;
+            }
+            int offset = renderingData.xyz.rows();
+
+            //if(isFirstRun)
+            //{
+            //    visual->initTransform();
+            //}
+
+            if(visual->d_isStaticModel.getValue())
+                hasStaticData=true;
+
+            // First build the reference geometry
+            append(renderingData.xyz, visual->l_geometry->data->xyz);
+            append(renderingData.sh, visual->l_geometry->data->sh);
+            append(renderingData.opacity, visual->l_geometry->data->opacity);
+            append(renderingData.scale, visual->l_geometry->data->scale);
+            append(renderingData.rot, visual->l_geometry->data->rot);
+
+            auto scale = visual->d_uniformScale.getValue();
+            auto initFrames = visual->initFrames;
+            auto frames = helper::getReadAccessor(visual->d_frames);
+            auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
+
+            std::vector<std::vector<int>> frameMap{frames.size()};
+            for(size_t i=0;i<frameIndices.size();++i)
+            {
+                frameMap[frameIndices[i]].push_back(offset+i);
+            }
+
+            //visual->doUpdateVisual(sofa::core::visual::VisualParams::defaultInstance());
+
+            // Now we need to apply the transformation
+            this->transform(scale,
+                            initFrames,
+                            frames, frameMap, renderingData.xyz, renderingData.rot, renderingData.scale);
+            msg_info() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size();
+        }
     }
     msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
 
+    isFirstRun=false;
     // In case there is not rendering data, then just exit
     if(renderingData.size()==0)
         return;
@@ -308,26 +367,29 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     shader.SetFloatVector3(shader.GetVariable("cam_pos"), 1, cam_pos.data());
     shader.SetFloatVector2(shader.GetVariable("tanxy"), 1, tanxy.data());
     shader.SetFloat(shader.GetVariable("focal"), focal);
-
     shader.SetInt(shader.GetVariable("max_sh_dim"), max_sh_dim);
     shader.SetInt(shader.GetVariable("render_mod"), mode);
     shader.SetFloat(shader.GetVariable("scale_modifier"), scale_modifier);
-
-    std::vector<int> indices = range(renderingData.size());
-    depths.resize(indices.size());
-
-    sort(viewmat, renderingData.xyz, depths, indices);
 
     glDisable(GL_CULL_FACE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    std::vector<float> flatData = renderingData.flat();
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, flatData.size() * sizeof(float), flatData.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    std::vector<int> indices = range(renderingData.size());
+    depths.resize(indices.size());
 
+    static bool isInited = false;
+    if(!isInited || !hasStaticData){
+        isInited = true;
+
+        std::vector<float> flatData = renderingData.flat();
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, flatData.size() * sizeof(float), flatData.data(), GL_STATIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    }
+
+    sort(viewmat, renderingData.xyz, depths, indices);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_index);
     glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_index);
