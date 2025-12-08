@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <Eigen/Dense>
 #include <sofa/helper/system/FileRepository.h>
+#include <sofa/pointcloud/components/PointCloudRendererBackend.h>
 
 namespace sofa::core
 {
@@ -125,7 +126,8 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     glGenBuffers(1, &_ssbo_index);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_index);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_index);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);    
+
 }
 
 void PointCloudRenderer::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
@@ -175,15 +177,18 @@ void PointCloudRenderer::sort(const Eigen::Matrix4f& P,
     const Eigen::RowVector3f proj_row = P.row(2).head<3>();
     for(size_t i=0;i<depth_indices.size(); ++i)
     {
-        int sorted_idx = depth_indices[i];
-        Eigen::Vector3f center = (positions.row(sorted_idx).transpose());
-        depths[sorted_idx] = proj_row.dot(center);
+        Eigen::Vector3f center = (positions.row(i).transpose());
+        indices[i] = i;
+        depths[i] = proj_row.dot(center);
     }
 
-    tbb::parallel_sort(depth_indices.begin(), depth_indices.end(),
-                       [&](int i, int j) {
-        return depths[i] < depths[j];
-    });
+//    tbb::parallel_sort(depth_indices.begin(), depth_indices.end(),
+//                       [&](int i, int j) {
+//        return depths[i] < depths[j];
+//    });
+
+    sort_float_int(depths.data(), depth_indices.data(), depths.size());
+    //sort_float_int_to_ssbo(depths.data(), depth_indices.data(), depths.size(), _ssbo_index);
 }
 
 void PointCloudRenderer::transform(float scale,
@@ -222,36 +227,6 @@ void PointCloudRenderer::transform(float scale,
     }
 }
 
-int calcOrder( const sofa::type::Vec3& dir )
-{
-    int signs;
-
-    const int   sx = dir.x()<0.0_sreal;
-    const int   sy = dir.y()<0.0_sreal;
-    const int   sz = dir.z()<0.0_sreal;
-    const float ax = rabs( dir.x() );
-    const float ay = rabs( dir.y() );
-    const float az = rabs( dir.z() );
-
-    if( ax>ay && ax>az )
-    {
-        if( ay>az ) signs = 0 + ((sx<<2)|(sy<<1)|sz);
-        else        signs = 8 + ((sx<<2)|(sz<<1)|sy);
-    }
-    else if( ay>az )
-    {
-        if( ax>az ) signs = 16 + ((sy<<2)|(sx<<1)|sz);
-        else        signs = 24 + ((sy<<2)|(sz<<1)|sx);
-    }
-    else
-    {
-        if( ax>ay ) signs = 32 + ((sz<<2)|(sx<<1)|sy);
-        else        signs = 40 + ((sz<<2)|(sy<<1)|sx);
-    }
-
-    return signs;
-}
-
 void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
 {
     auto viewport = vparams->viewport();
@@ -265,7 +240,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     if(!l_camera)
         return;
 
-    // Aggreate the geometries by traversing the scene tree
+    // Aggregate the geometries by traversing the scene tree
     auto visualModels = l_targetNode->getTreeObjects<sofa::pointcloud::components::PointCloudVisualModel>();
     msg_info() << "Found " << visualModels.size() << " gaussian splats visual models.";
 
@@ -336,6 +311,12 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     auto c = l_camera->getPosition();
     Eigen::Vector3f cam_pos {c[0],c[1],c[2]};
 
+    vparams->getModelViewMatrix(dviewmat.data());
+    vparams->getProjectionMatrix(dprojmat.data());
+
+    projmat = dprojmat.cast<float>();
+    viewmat = dviewmat.cast<float>();
+
     float fov = l_camera->getFieldOfView();
     float tanHalfFov = tan((fov / 180.0 * M_PI) / 2.0f);
     float aspect = static_cast<float>(viewport[2]) / viewport[3];
@@ -351,11 +332,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     type.writeOpenGlMatrix ( glTransform );
     Eigen::Matrix4f transform {glTransform };
 
-    vparams->getModelViewMatrix(dviewmat.data());
-    vparams->getProjectionMatrix(dprojmat.data());
-
-    projmat = dprojmat.cast<float>();
-    viewmat = dviewmat.cast<float>();
 
     shader.TurnOn();
 
@@ -375,11 +351,9 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    std::vector<int> indices = range(renderingData.size());
-    depths.resize(indices.size());
-
+    indices = range(renderingData.size());
     static bool isInited = false;
-    if(!isInited || !hasStaticData){
+    if(!isInited || !hasStaticData){
         isInited = true;
 
         std::vector<float> flatData = renderingData.flat();
@@ -388,6 +362,9 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     }
+
+    indices = range(renderingData.size());
+    depths.resize(indices.size());
 
     sort(viewmat, renderingData.xyz, depths, indices);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_index);
@@ -400,8 +377,11 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     glEnableVertexAttribArray(0);
 
     glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, 4, indices.size());
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glDisableVertexAttribArray(0);
+    glBindVertexArray(0);
 
     shader.TurnOff();
 

@@ -28,6 +28,7 @@
 #include <sofa/gl/GLSLShader.h>
 #include <sofa/helper/SelectableItem.h>
 #include <ostream>
+#include <future>
 
 namespace sofa::pointcloud::components
 {
@@ -68,6 +69,8 @@ private:
     gl::GLSLShader      shader;
     GaussianData        renderingData;
 
+    std::future<void> a1;
+    std::vector<int> indices;
     std::map<unsigned int, std::vector<int>> directionalIndices;
 
     void transform(float uniformScale,

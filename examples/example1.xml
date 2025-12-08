@@ -7,5 +7,8 @@
     <PointCloudRenderer camera="@camera"/> 
 
     <PointCloudContainer name="container1" filename="splats/spot.ply"/> 
-    <PointCloudVisualModel name="visual" geometry="@container1" isStatic="True"/> 
+    
+    <PointCloudContainer name="container2"/> 
+    <PointCloudTransform name="transform" input="@container1" output="@container2"/> 
+    <PointCloudVisualModel name="visual" geometry="@container2"/> 
 </Node>
