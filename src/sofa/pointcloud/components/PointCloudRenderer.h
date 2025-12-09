@@ -20,6 +20,7 @@
 * Contact information: contact@sofa-framework.org                             *
 ******************************************************************************/
 #pragma once
+#include "sofa/pointcloud/components/PointCloudVisualModel.h"
 #include <sofa/simulation/Node.h>
 #include <sofa/pointcloud/config.h>
 #include <sofa/pointcloud/components/PointCloudContainer.h>
@@ -62,8 +63,18 @@ public:
 private:
     GLuint              _vao;
     GLuint              _vbo;
-    GLuint              _ssbo_splat;
-    GLuint              _ssbo_index;
+
+    enum SplatProperty
+    {
+        INDEX = 0,
+        POSITION = 1,
+        ROTATION = 2 ,
+        SCALE = 3,
+        OPACITY = 4,
+        SPHERICAL_HARMONICS = 5
+    };
+
+    GLuint              _ssbo_splat[6];
 
     std::vector<float>  depths;
     gl::GLSLShader      shader;
@@ -73,11 +84,15 @@ private:
     std::vector<int> indices;
     std::map<unsigned int, std::vector<int>> directionalIndices;
 
+    std::map<PointCloudVisualModel*, std::tuple<int,int>> dataCache;
+
     void transform(float uniformScale,
                    const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
                    const std::vector<defaulttype::Rigid3Types::Coord>& frames,
                    const std::vector<std::vector<int>>& frameIndices,
-                   Eigen::MatrixXf& positions, Eigen::MatrixXf& orientations, Eigen::MatrixXf& scales);
+                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> &positions,
+                   Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor> &orientations,
+                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> &scales);
 
     void sort(const Eigen::Matrix4f& P,
               const Eigen::MatrixXf& positions,

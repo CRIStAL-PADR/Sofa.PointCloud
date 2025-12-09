@@ -45,6 +45,11 @@ public:
 
     void clear(GaussianData& data);
     void append(Eigen::MatrixXf& dest, const Eigen::MatrixXf& src);
+    void append(Eigen::Matrix<float, Eigen::Dynamic, 1>& dest,
+                                     const Eigen::Matrix<float, Eigen::Dynamic, 1>& src);
+    template<unsigned int Size>
+    void append(Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& dest,
+                                     const Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& src);
     void append(GaussianData& dest, const GaussianData& src);
 
 private:

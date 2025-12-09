@@ -100,12 +100,11 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
 
     auto vtx = helper::system::DataRepository.getFile("shaders/gaussian_splatting.vert");
     auto fg = helper::system::DataRepository.getFile("shaders/gaussian_splatting.frag");
-
-    auto vertexShader = readFile(vtx);
-    auto fragmentShader = readFile(fg);
+    auto geom = helper::system::DataRepository.getFile("shaders/gaussian_splatting.geom");
 
     shader.SetVertexShaderFileName(vtx);
     shader.SetFragmentShaderFileName(fg);
+    shader.SetGeometryShaderFileName(geom);
     shader.InitShaders();
 
     // Q quad to render a ray-marcher
@@ -118,15 +117,13 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 8, _vertices.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-    glGenBuffers(1, &_ssbo_splat);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat);
+    glGenBuffers(6, _ssbo_splat);
+    for(auto i = 0;i<6;i++)
+    {
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[i]);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, i, _ssbo_splat[i]);
+    }
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-    glGenBuffers(1, &_ssbo_index);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_index);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_index);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);    
 
 }
 
@@ -152,6 +149,28 @@ void append(Eigen::MatrixXf& dest, const Eigen::MatrixXf& src)
     dest.conservativeResize(dest.rows() + src.rows(), src.cols());
     dest.block(oldRows, 0, src.rows(), src.cols()) = src;
 }
+
+template<int Size>
+void append(Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& dest,
+            const Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& src)
+{
+    assert(A.cols() == B.cols());
+
+    int oldRows = dest.rows();
+    dest.conservativeResize(dest.rows() + src.rows(), src.cols());
+    dest.block(oldRows, 0, src.rows(), src.cols()) = src;
+}
+
+void append(Eigen::Matrix<float, Eigen::Dynamic, 1>& dest,
+            const Eigen::Matrix<float, Eigen::Dynamic, 1>& src)
+{
+    assert(A.cols() == B.cols());
+
+    int oldRows = dest.rows();
+    dest.conservativeResize(dest.rows() + src.rows(), src.cols());
+    dest.block(oldRows, 0, src.rows(), src.cols()) = src;
+}
+
 
 void append(GaussianData& dest, const GaussianData& src)
 {
@@ -195,7 +214,9 @@ void PointCloudRenderer::transform(float scale,
                                    const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
                                    const std::vector<defaulttype::Rigid3Types::Coord>& frames,
                                    const std::vector<std::vector<int>>& frameIndices,
-                                   Eigen::MatrixXf& positions, Eigen::MatrixXf& orientations, Eigen::MatrixXf& scales)
+                                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& positions,
+                                   Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor>& orientations,
+                                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& scales)
 {
     for(size_t frameIndex=0;frameIndex<frameIndices.size();++frameIndex)
     {
@@ -244,13 +265,12 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     auto visualModels = l_targetNode->getTreeObjects<sofa::pointcloud::components::PointCloudVisualModel>();
     msg_info() << "Found " << visualModels.size() << " gaussian splats visual models.";
 
+    std::vector<std::tuple<int,int>> updatesBufferParts;
     static bool isFirstRun = true;
-    static bool hasStaticData=false;
-
-    if(!hasStaticData)
+    if(isFirstRun)
     {
+        isFirstRun = false;
         clear(renderingData);
-
         for(auto visual : visualModels)
         {
             visual->updateVisual(vparams);
@@ -269,10 +289,14 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             //    visual->initTransform();
             //}
 
-            if(visual->d_isStaticModel.getValue())
-                hasStaticData=true;
+            //if(visual->d_isStaticModel.getValue())
+            //    hasStaticData=true;
 
             // First build the reference geometry
+            int beginIndex = renderingData.size();
+            int size = visual->l_geometry->data->xyz.rows()*(3+4+3+1+visual->l_geometry->data->sh_dim());
+            dataCache[visual] = std::make_tuple(beginIndex, size);
+
             append(renderingData.xyz, visual->l_geometry->data->xyz);
             append(renderingData.sh, visual->l_geometry->data->sh);
             append(renderingData.opacity, visual->l_geometry->data->opacity);
@@ -296,12 +320,49 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             this->transform(scale,
                             initFrames,
                             frames, frameMap, renderingData.xyz, renderingData.rot, renderingData.scale);
-            msg_info() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size();
+            msg_warning() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size();
+            msg_warning() << "         data set offset & size " << beginIndex << ", " << size;
+        }
+    }else{
+        for(auto visual : visualModels)
+        {
+            visual->updateVisual(vparams);
+            if(!visual->isComponentStateValid()){
+                continue;
+            }
+
+            if(!visual->l_geometry->data){
+                continue;
+            }
+            if(visual->d_isStaticModel.getValue())
+                continue;
+
+            auto [offset, size] = dataCache[visual];
+
+            auto scale = visual->d_uniformScale.getValue();
+            auto initFrames = visual->initFrames;
+            auto frames = helper::getReadAccessor(visual->d_frames);
+            auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
+
+            std::vector<std::vector<int>> frameMap{frames.size()};
+            for(size_t i=0;i<frameIndices.size();++i)
+            {
+                frameMap[frameIndices[i]].push_back(offset+i);
+            }
+
+            // Now we need to apply the transformation
+            this->transform(scale,
+                            initFrames,
+                            frames, frameMap, renderingData.xyz, renderingData.rot, renderingData.scale);
+            msg_warning() << "Updating a new data set " << visual->getPathName() << " with frames " << frames.size();
+            msg_warning() << "         data set offset & size " << offset << ", " << size;
+            updatesBufferParts.push_back({offset,size});
         }
     }
     msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
 
     isFirstRun=false;
+
     // In case there is not rendering data, then just exit
     if(renderingData.size()==0)
         return;
@@ -351,25 +412,43 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    indices = range(renderingData.size());
-    static bool isInited = false;
-    if(!isInited || !hasStaticData){
-        isInited = true;
+    static bool firstTime = true;
+    if(firstTime)
+    {
+        firstTime = false;
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::SCALE]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.scale.rows() * sizeof(float) * 3, renderingData.scale.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _ssbo_splat[SplatProperty::SCALE]);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-        std::vector<float> flatData = renderingData.flat();
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, flatData.size() * sizeof(float), flatData.data(), GL_STATIC_DRAW);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::OPACITY]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.opacity.rows() * sizeof(float), renderingData.opacity.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _ssbo_splat[SplatProperty::OPACITY]);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+        auto buffer = renderingData.flat_sh();
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::SPHERICAL_HARMONICS]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, buffer.size()*sizeof(float), buffer.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _ssbo_splat[SplatProperty::SPHERICAL_HARMONICS]);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     }
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::POSITION]);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.xyz.rows() * sizeof(float) * 3, renderingData.xyz.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_splat[SplatProperty::POSITION]);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::ROTATION]);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.rot.rows() * sizeof(float) * 4, renderingData.rot.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssbo_splat[SplatProperty::ROTATION]);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     indices = range(renderingData.size());
     depths.resize(indices.size());
 
     sort(viewmat, renderingData.xyz, depths, indices);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_index);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
     glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_index);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     glBindBuffer(GL_ARRAY_BUFFER, _vbo);

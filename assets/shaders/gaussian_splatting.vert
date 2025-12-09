@@ -17,19 +17,24 @@
 #define SH_C3_5 1.445305721320277f
 #define SH_C3_6 -0.5900435899266435f
 
-#define P_INDEX 0
-#define R_INDEX 3
-#define S_INDEX 7
-#define O_INDEX 10
-#define C_INDEX 11
-
 layout(location = 0) in vec2 position;
-
-layout (std430, binding=0) buffer _splats {
-	float splat[];
+layout (std430, binding=0) buffer _index {
+    int index[];
 };
-layout (std430, binding=1) buffer _index {
-	int index[];
+layout (std430, binding=1) buffer _positions {
+    float positions[];
+};
+layout (std430, binding=2) buffer _rotations {
+    float rotations[];
+};
+layout (std430, binding=3) buffer _scales {
+    float scales[];
+};
+layout (std430, binding=4) buffer _opacities {
+    float opacities[];
+};
+layout (std430, binding=5) buffer _sh {
+    float sh[];
 };
 
 uniform mat4 projmat;
@@ -95,23 +100,40 @@ vec3 computeCov2D(vec4 mean_view, float focal_x, float focal_y, float tan_fovx, 
     return vec3(cov[0][0], cov[0][1], cov[1][1]);
 }
 
-vec3 get_vec3(int offset)
+vec3 get_position(int offset)
 {
-	return vec3(splat[offset], splat[offset + 1], splat[offset + 2]);
+    offset *= 3;
+    return vec3(positions[offset + 0 ], positions[offset + 1], positions[offset + 2]);
 }
-vec4 get_vec4(int offset)
+
+vec4 get_rotation(int offset)
 {
-	return vec4(splat[offset], splat[offset + 1], splat[offset + 2], splat[offset + 3]);
+    offset *= 4;
+    return vec4(rotations[offset + 0], rotations[offset + 1], rotations[offset + 2], rotations[offset + 3]);
+}
+
+vec3 get_scale(int offset)
+{
+  offset *= 3;
+  return vec3(scales[offset + 0], scales[offset + 1], scales[offset + 2]);
+}
+
+float get_opacity(int offset)
+{
+  return opacities[offset];
+}
+
+vec3 get_sh(int offset, int entry)
+{
+  offset = offset * max_sh_dim + entry;
+  return vec3(sh[offset + 0], sh[offset + 1], sh[offset + 2]) ;
 }
 
 void main()
 {
 	int splat_idx = index[gl_InstanceID];
-	int splat_dim = 3 + 4 + 3 + 1 + max_sh_dim;
 
-	int start = splat_idx * splat_dim;
-
-	vec4 g_pos = vec4(get_vec3(start + P_INDEX), 1.f);
+    vec4 g_pos = vec4(get_position(splat_idx), 1.f);
     vec4 g_pos_view = viewmat * g_pos;
     vec4 g_pos_screen = projmat * g_pos_view;
 
@@ -122,9 +144,9 @@ void main()
 		gl_Position = vec4(-100, -100, -100, 1);
 		return;
 	}
-	vec4 g_rot = get_vec4(start + R_INDEX);
-	vec3 g_scale = get_vec3(start + S_INDEX);
-	float g_opacity = splat[start + O_INDEX];
+    vec4 g_rot = get_rotation(splat_idx);
+    vec3 g_scale = get_scale(splat_idx);
+    float g_opacity = get_opacity(splat_idx);
 
     mat3 cov3d = computeCov3D(g_scale * scale_modifier, g_rot);
     vec2 wh = 2 * tanxy * focal;
@@ -154,39 +176,42 @@ void main()
 		return;
 	}
 
-	// Covert SH to color
-	int sh_start = start + C_INDEX;
+    // Convert SH to color
+    int sh_start = splat_idx;
 	vec3 dir = g_pos.xyz - cam_pos;
     dir = normalize(dir);
-	color = SH_C0 * get_vec3(sh_start);
+
+
+
+    color = SH_C0 * get_sh(sh_start, 0);
 	
 	if (render_mod >= 1 && max_sh_dim >= 4){
 		float x = dir.x;
 		float y = dir.y;
 		float z = dir.z;
 		color = color - 
-			SH_C1 * y * get_vec3(sh_start + 1 * 3) + 
-			SH_C1 * z * get_vec3(sh_start + 2 * 3) - 
-			SH_C1 * x * get_vec3(sh_start + 3 * 3);
+            SH_C1 * y * get_sh(sh_start, 1 * 3) +
+            SH_C1 * z * get_sh(sh_start, 2 * 3) -
+            SH_C1 * x * get_sh(sh_start, 3 * 3);
 		if (render_mod >= 2 && max_sh_dim >= 9){
 			float xx = x * x, yy = y * y, zz = z * z;
 			float xy = x * y, yz = y * z, xz = x * z;
 			color = color +
-				SH_C2_0 * xy * get_vec3(sh_start + 4 * 3) +
-				SH_C2_1 * yz * get_vec3(sh_start + 5 * 3) +
-				SH_C2_2 * (2.0f * zz - xx - yy) * get_vec3(sh_start + 6 * 3) +
-				SH_C2_3 * xz * get_vec3(sh_start + 7 * 3) +
-				SH_C2_4 * (xx - yy) * get_vec3(sh_start + 8 * 3);
+                SH_C2_0 * xy * get_sh(sh_start, 4 * 3) +
+                SH_C2_1 * yz * get_sh(sh_start, 5 * 3) +
+                SH_C2_2 * (2.0f * zz - xx - yy) * get_sh(sh_start,  6 * 3) +
+                SH_C2_3 * xz * get_sh(sh_start, 7 * 3) +
+                SH_C2_4 * (xx - yy) * get_sh(sh_start, 8 * 3);
 
 			if (render_mod >= 3 && max_sh_dim >= 16){
 				color = color +
-					SH_C3_0 * y * (3.0f * xx - yy) * get_vec3(sh_start + 9 * 3) +
-					SH_C3_1 * xy * z * get_vec3(sh_start + 10 * 3) +
-					SH_C3_2 * y * (4.0f * zz - xx - yy) * get_vec3(sh_start + 11 * 3) +
-					SH_C3_3 * z * (2.0f * zz - 3.0f * xx - 3.0f * yy) * get_vec3(sh_start + 12 * 3) +
-					SH_C3_4 * x * (4.0f * zz - xx - yy) * get_vec3(sh_start + 13 * 3) +
-					SH_C3_5 * z * (xx - yy) * get_vec3(sh_start + 14 * 3) +
-					SH_C3_6 * x * (xx - 3.0f * yy) * get_vec3(sh_start + 15 * 3);
+                    SH_C3_0 * y * (3.0f * xx - yy) * get_sh(sh_start, 9 * 3) +
+                    SH_C3_1 * xy * z * get_sh(sh_start, 10 * 3) +
+                    SH_C3_2 * y * (4.0f * zz - xx - yy) * get_sh(sh_start, 11 * 3) +
+                    SH_C3_3 * z * (2.0f * zz - 3.0f * xx - 3.0f * yy) * get_sh(sh_start, 12 * 3) +
+                    SH_C3_4 * x * (4.0f * zz - xx - yy) * get_sh(sh_start,  13 * 3) +
+                    SH_C3_5 * z * (xx - yy) * get_sh(sh_start, 14 * 3) +
+                    SH_C3_6 * x * (xx - 3.0f * yy) * get_sh(sh_start, 15 * 3);
 			}
 		}
 	}

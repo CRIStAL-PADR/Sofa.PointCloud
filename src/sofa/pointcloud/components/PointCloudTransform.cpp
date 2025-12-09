@@ -85,13 +85,35 @@ void PointCloudTransform::append(Eigen::MatrixXf& dest, const Eigen::MatrixXf& s
     dest.block(oldRows, 0, src.rows(), src.cols()) = src;
 }
 
+template<unsigned int Size>
+void PointCloudTransform::append(Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& dest,
+                                 const Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& src)
+{
+    assert(A.cols() == B.cols());
+
+    int oldRows = dest.rows();
+    dest.conservativeResize(dest.rows() + src.rows(), src.cols());
+    dest.block(oldRows, 0, src.rows(), src.cols()) = src;
+}
+
+void PointCloudTransform::append(Eigen::Matrix<float, Eigen::Dynamic, 1>& dest,
+                                 const Eigen::Matrix<float, Eigen::Dynamic, 1>& src)
+{
+    assert(A.cols() == B.cols());
+
+    int oldRows = dest.rows();
+    dest.conservativeResize(dest.rows() + src.rows(), src.cols());
+    dest.block(oldRows, 0, src.rows(), src.cols()) = src;
+}
+
+
 void PointCloudTransform::append(GaussianData& dest, const GaussianData& src)
 {
-    append(dest.xyz, src.xyz);
+    append<3>(dest.xyz, src.xyz);
     append(dest.sh, src.sh);
     append(dest.opacity, src.opacity);
-    append(dest.scale, src.scale);
-    append(dest.rot, src.rot);
+    append<3>(dest.scale, src.scale);
+    append<4>(dest.rot, src.rot);
 }
 
 void PointCloudTransform::update()
