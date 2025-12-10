@@ -94,7 +94,7 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
 {
     if (!sofa::gl::GLSLShader::InitGLSL())
     {
-        msg_info("BasicShapesGL") << "InitGLSL failed" ;
+        msg_info() << "InitGLSL failed" ;
         return;
     }
 
@@ -108,13 +108,14 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     shader.InitShaders();
 
     // Q quad to render a ray-marcher
-    std::vector<float> _vertices = {-1.0f,  1.0f, 1.0f,  1.0f, 1.0f, -1.0f, -1.0f, -1.0f};
+    std::vector<float> _vertices = {0.0};
 
     glGenVertexArrays(1, &_vao);
     glGenBuffers(1, &_vbo);
     glBindVertexArray(_vao);
     glBindBuffer(GL_ARRAY_BUFFER, _vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 8, _vertices.data(), GL_STATIC_DRAW);
+
+   glBufferData(GL_ARRAY_BUFFER, sizeof(float), _vertices.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
     glGenBuffers(6, _ssbo_splat);
@@ -455,7 +456,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     glBindVertexArray(_vao);
     glEnableVertexAttribArray(0);
 
-    glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, 4, indices.size());
+    glDrawArraysInstanced(GL_POINTS, 0, 1, indices.size());
 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
