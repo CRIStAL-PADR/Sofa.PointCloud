@@ -20,12 +20,13 @@
 * Contact information: contact@sofa-framework.org                             *
 ******************************************************************************/
 #pragma once
-#include "sofa/pointcloud/components/PointCloudVisualModel.h"
-#include <sofa/simulation/Node.h>
 #include <sofa/pointcloud/config.h>
+#include <sofa/pointcloud/components/PointCloudVisualModel.h>
 #include <sofa/pointcloud/components/PointCloudContainer.h>
+#include <sofa/pointcloud/components/PointCloudRendererBackend.h>
 #include <sofa/core/visual/VisualModel.h>
 #include <sofa/component/visual/BaseCamera.h>
+#include <sofa/simulation/Node.h>
 #include <sofa/gl/GLSLShader.h>
 #include <sofa/helper/SelectableItem.h>
 #include <ostream>
@@ -53,6 +54,7 @@ public:
     Link<BaseCamera> l_camera;
 
     Data<helper::OptionsGroup> d_renderMode;
+    Data<bool> d_withCuda;
 
     void init() override;
 
@@ -71,14 +73,19 @@ private:
         ROTATION = 2 ,
         SCALE = 3,
         OPACITY = 4,
-        SPHERICAL_HARMONICS = 5
+        SPHERICAL_HARMONICS = 5,
+        DEPTHS = 6
     };
 
-    GLuint              _ssbo_splat[6];
+    GLuint              _ssbo_splat[7];
 
     std::vector<float>  depths;
     gl::GLSLShader      shader;
     GaussianData        renderingData;
+
+    BaseGLBuffer *interop_positions;
+    BaseGLBuffer *interop_depths;
+    BaseGLBuffer *interop_indices;
 
     std::future<void> a1;
     std::vector<int> indices;
@@ -98,5 +105,10 @@ private:
               const Eigen::MatrixXf& positions,
               std::vector<float>& depths,
               std::vector<int> &depth_indices);
+
+    void transform_and_sort(const Eigen::Matrix4f& P,
+                            BaseGLBuffer* position,
+                            BaseGLBuffer* depth,
+                            BaseGLBuffer* indices, int N);
 };
 }

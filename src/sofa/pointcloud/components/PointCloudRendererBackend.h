@@ -21,8 +21,34 @@
 ******************************************************************************/
 #pragma once
 #include <GL/gl.h>
-void sort_float_int(float* keys, int* values, int N);
-void sort_float_int_to_ssbo(    const float* h_keys,
-                                const int*   h_values,
-                                int N,
-                                GLuint ssbo);
+#include <Eigen/Dense>
+
+class BaseGLBuffer
+{
+public:
+    //virtual void init(int ssboID) = 0;
+    virtual void cleanup() = 0;
+    virtual void map() = 0;
+    virtual void unmap() = 0;
+
+    virtual void getValueAsFloats(std::vector<float>& dest) = 0;
+    virtual void getValueAsInts(std::vector<int>& dest) = 0;
+};
+
+class PointCloudRendererBackend
+{
+public:
+    static bool hasCuda();
+
+    template<class T> static BaseGLBuffer* createBuffer(GLuint ssboID);
+
+    static void sort_float_int(float* keys, int* values, int N);
+    static void transform_and_sort_cuda(const Eigen::Matrix4f&, BaseGLBuffer* positions,
+                                        BaseGLBuffer* h_keys, BaseGLBuffer* h_values, int N);
+
+    static void transform_and_sort_cpu(const Eigen::Matrix4f& P,
+                                  const Eigen::MatrixXf& positions,
+                                  std::vector<float>& depths,
+                                  std::vector<int>& depth_indices);
+};
+

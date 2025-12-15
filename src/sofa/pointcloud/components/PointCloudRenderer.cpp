@@ -48,7 +48,8 @@ namespace sofa::pointcloud::components
 PointCloudRenderer::PointCloudRenderer() :
     l_targetNode(initLink("targetNode", "Link to the node to start rendering from"))
   , l_camera(initLink("camera", "link to the camera used to render"))
-  , d_renderMode(initData(&d_renderMode, "color_sh_0", "renderMode", ""))
+  , d_renderMode(initData(&d_renderMode, "color_sh_0", "renderMode", "Visualization method, select the spherical harmonics, gaussian or depth values"))
+  , d_withCuda(initData(&d_withCuda, true, "withCuda", "Use the CUDA based rendering of point cloud for high performance, default=true"))
 {
     helper::OptionsGroup methodOptions{"COLOR_SH_0",
                                        "COLOR_SH_1",
@@ -115,10 +116,10 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     glBindVertexArray(_vao);
     glBindBuffer(GL_ARRAY_BUFFER, _vbo);
 
-   glBufferData(GL_ARRAY_BUFFER, sizeof(float), _vertices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float), _vertices.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-    glGenBuffers(6, _ssbo_splat);
+    glGenBuffers(7, _ssbo_splat);
     for(auto i = 0;i<6;i++)
     {
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[i]);
@@ -126,6 +127,13 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     }
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
+    // Initialize the interop-buffer
+    interop_positions = PointCloudRendererBackend::createBuffer<float>(_ssbo_splat[SplatProperty::POSITION]);
+    interop_depths = PointCloudRendererBackend::createBuffer<float>(_ssbo_splat[SplatProperty::DEPTHS]);
+    interop_indices = PointCloudRendererBackend::createBuffer<int>(_ssbo_splat[SplatProperty::INDEX]);
+
+    if(!PointCloudRendererBackend::hasCuda())
+        d_withCuda.setValue(false);
 }
 
 void PointCloudRenderer::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
@@ -189,27 +197,6 @@ std::vector<int> range(int maxSize)
     return tmp;
 }
 
-void PointCloudRenderer::sort(const Eigen::Matrix4f& P,
-                              const Eigen::MatrixXf& positions,
-                              std::vector<float>& depths,
-                              std::vector<int>& depth_indices)
-{
-    const Eigen::RowVector3f proj_row = P.row(2).head<3>();
-    for(size_t i=0;i<depth_indices.size(); ++i)
-    {
-        Eigen::Vector3f center = (positions.row(i).transpose());
-        indices[i] = i;
-        depths[i] = proj_row.dot(center);
-    }
-
-//    tbb::parallel_sort(depth_indices.begin(), depth_indices.end(),
-//                       [&](int i, int j) {
-//        return depths[i] < depths[j];
-//    });
-
-    sort_float_int(depths.data(), depth_indices.data(), depths.size());
-    //sort_float_int_to_ssbo(depths.data(), depth_indices.data(), depths.size(), _ssbo_index);
-}
 
 void PointCloudRenderer::transform(float scale,
                                    const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
@@ -432,25 +419,38 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBufferData(GL_SHADER_STORAGE_BUFFER, buffer.size()*sizeof(float), buffer.data(), GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _ssbo_splat[SplatProperty::SPHERICAL_HARMONICS]);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        indices = range(renderingData.size());
     }
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::POSITION]);
     glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.xyz.rows() * sizeof(float) * 3, renderingData.xyz.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_splat[SplatProperty::POSITION]);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::ROTATION]);
     glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.rot.rows() * sizeof(float) * 4, renderingData.rot.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssbo_splat[SplatProperty::ROTATION]);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    indices = range(renderingData.size());
-    depths.resize(indices.size());
+    depths.resize(indices.size(), -2.0);
+    std::cout << "HELLO WORLD RENDERING SUPER " << std::endl;
+    if(d_withCuda.getValue())
+    {
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
 
-    sort(viewmat, renderingData.xyz, depths, indices);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::DEPTHS]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, depths.size() * sizeof(float), depths.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, _ssbo_splat[SplatProperty::DEPTHS]);
+
+        PointCloudRendererBackend::transform_and_sort_cuda(viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
+    }else
+    {
+        PointCloudRendererBackend::transform_and_sort_cpu(viewmat, renderingData.xyz,
+                                                          depths, indices);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
+    }
 
     glBindBuffer(GL_ARRAY_BUFFER, _vbo);
     glBindVertexArray(_vao);
