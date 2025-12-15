@@ -19,7 +19,7 @@ public:
     GLuint glSSBO {0};
     cudaGraphicsResource* cudaBuffer{nullptr};
 
-    CUdaGLBuffer(GLuint ssboID)
+    CudaGLBuffer(GLuint ssboID)
     {
         glSSBO = ssboID;
     }
