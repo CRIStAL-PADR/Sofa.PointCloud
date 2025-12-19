@@ -21,7 +21,6 @@ uniform mat4 viewmat;
 uniform vec3 cam_pos;
 uniform vec2 tanxy;
 uniform float focal;
-uniform float scale_modifier;
 uniform int max_sh_dim;
 uniform int render_mod;
 
@@ -147,7 +146,7 @@ void main()
   vec3 g_scale = get_scale(splat_idx);
   float g_opacity = get_opacity(splat_idx);
 
-  mat3 cov3d = computeCov3D(g_scale * scale_modifier, g_rot);
+  mat3 cov3d = computeCov3D(g_scale, g_rot);
   vec2 wh = 2 * tanxy * focal;
   vec3 cov2d = computeCov2D(g_pos_view[0], focal, focal, tanxy.x, tanxy.y, cov3d, viewmat);
 
@@ -170,7 +169,6 @@ void main()
   color += 0.5f;
 
   float s = 1.0;
-
   vec2 dirs[4] = vec2[4](
         vec2(-s,  s),
         vec2( s,  s),

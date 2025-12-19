@@ -33,11 +33,7 @@ public:
     {
         if(cudaBuffer==nullptr)
             CUDA_CHECK(cudaGraphicsGLRegisterBuffer(&cudaBuffer, glSSBO, cudaGraphicsRegisterFlagsWriteDiscard));
-
         CUDA_CHECK(cudaGraphicsMapResources(1, &cudaBuffer));
-        auto [_, size] = getSSBOAndSize();
-
-        std::cout << "MAP FOR " << cudaBuffer << " ," << glSSBO << " size=" << size << std::endl;
      }
 
     void unmap() override
@@ -45,37 +41,30 @@ public:
         CUDA_CHECK(cudaGraphicsUnmapResources(1, &cudaBuffer));
     }
 
-    // Returns the ssbo id & size
+    // Returns the ssbo id & size in byte
     std::tuple<T*, size_t> getSSBOAndSize()
     {
-        std::cout << "[DEBUG] glSSBO=" << glSSBO
-                  << " cudaBuffer=" << cudaBuffer << std::endl;
-
-        int* ssboPtr = nullptr;
+        T* ssboPtr = nullptr;
         size_t ssboSize = 0;
         CUDA_CHECK(cudaGraphicsResourceGetMappedPointer((void**)&ssboPtr, &ssboSize, cudaBuffer));
 
-        std::cout << "[DEBUG] ssboPtr=" << ssboPtr
-                  << " ssboSize=" << ssboSize << std::endl;
-
-        return {reinterpret_cast<T*>(ssboPtr), ssboSize};
+        return {ssboPtr, ssboSize};
     }
 
     void getValueAsFloats(std::vector<float>& values)
     {
         auto [ssbo, size] = getSSBOAndSize();
-        values.resize(size);
-        cudaMemcpy(values.data(), ssbo, size * sizeof(float), cudaMemcpyDeviceToHost);
+        values.resize(size/sizeof(float));
+        CUDA_CHECK(cudaMemcpy(values.data(), ssbo, size, cudaMemcpyDeviceToHost));
     }
 
     void getValueAsInts(std::vector<int>& values)
     {
         auto [ssbo, size] = getSSBOAndSize();
-        values.resize(size);
-        cudaMemcpy(values.data(), ssbo, size * sizeof(int), cudaMemcpyDeviceToHost);
+        values.resize(size/sizeof(int));
+        CUDA_CHECK(cudaMemcpy(values.data(), ssbo, size, cudaMemcpyDeviceToHost));
     }
 };
-
 
 template<> BaseGLBuffer* PointCloudRendererBackend::createBuffer<int>(GLuint ssboID)
 {
@@ -108,7 +97,6 @@ void sort_float_int(CudaGLBuffer<float>& values, CudaGLBuffer<int>& indices);
 void PointCloudRendererBackend::transform_and_sort_cuda(const Eigen::Matrix4f& mvp,
                         BaseGLBuffer* positions_, BaseGLBuffer* depths_, BaseGLBuffer* indices_, int N)
 {
-    std::cout << "MAIS OUI " << std::endl;
     auto positions = dynamic_cast<CudaGLBuffer<float>*>(positions_);
     auto depths = dynamic_cast<CudaGLBuffer<float>*>(depths_);
     auto indices = dynamic_cast<CudaGLBuffer<int>*>(indices_);
@@ -122,37 +110,19 @@ void PointCloudRendererBackend::transform_and_sort_cuda(const Eigen::Matrix4f& m
     depths->map();
     indices->map();
 
-    auto [values_ptr, values_size] = positions->getSSBOAndSize();
-    auto [indices_ptr, indices_size] = indices->getSSBOAndSize();
-
-    assert(values_size != N);
-    assert(indices_size != N);
-
-    thrust::device_ptr<float> d_keys(values_ptr);
-    thrust::device_ptr<int>   d_vals(indices_ptr);
-
-    std::cout << "BEFORE DEPTH" << std::endl;
     project_to_z(mvp, *positions, *depths, N);
 
-    std::vector<float> depths_cpu;
-    depths->getValueAsFloats(depths_cpu);
-    std::stringstream tmp;
-    tmp << "Depths: ";
-    for(unsigned int i =0;i<20;i++){
-        tmp << " " << depths_cpu[i];
-    }
-    std::cout << tmp.str() << std::endl;
+    auto [depths_ptr, depths_size] = depths->getSSBOAndSize();
+    auto [indices_ptr, indices_size] = indices->getSSBOAndSize();
 
-    thrust::sort_by_key(d_keys, d_keys+values_size, d_vals);
+    assert(depths_size/sizeof(float) == N);
+    assert(indices_size/sizeof(int) == N);
 
-    std::vector<int> indices_cpu;
-    indices->getValueAsInts(indices_cpu);
-    std::stringstream tmp2;
-    tmp2 << "Indices: ";
-    for(unsigned int i =0;i<20;i++){
-        tmp2 << " " << indices_cpu[i];
-    }
-    std::cout << tmp2.str() << std::endl;
+    thrust::device_ptr<float> d_depths(depths_ptr);
+    thrust::device_ptr<int>   d_indices(indices_ptr);
+
+    thrust::sequence(d_indices, d_indices+N, (uint32_t)0);
+    thrust::stable_sort_by_key(d_depths, d_depths+N, d_indices);
 
     positions->unmap();
     depths->unmap();
@@ -174,12 +144,13 @@ __device__ float compute_depth(const vec3& pos, const float* mvp)
     float y = pos.y;
     float z = pos.z;
 
-    // Multiplication matrice 4x4
-    float clip_z = proj->m[2]*x + proj->m[6]*y + proj->m[10]*z + proj->m[14];
-    float clip_w = proj->m[3]*x + proj->m[7]*y + proj->m[11]*z + proj->m[15];
+    // ligne 2 de P, colonnes 0..2
+    float proj0 = proj->m[0*4 + 2];
+    float proj1 = proj->m[1*4 + 2];
+    float proj2 = proj->m[2*4 + 2];
 
-    // Depth normalisée (NDC z)
-    return 0.0; //clip_z / clip_w;
+    // produit depth scalaire
+    return proj0 * x + proj1 * y + proj2 * z;
 }
 
 __global__ void compute_depth_kernel(
@@ -192,7 +163,7 @@ __global__ void compute_depth_kernel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= N) return;
 
-    depths[idx] = -1.0; //compute_depth(positions[idx], proj);
+    depths[idx] = compute_depth(positions[idx], proj);
 }
 
 void project_to_z(const Eigen::Matrix4f& mvp, CudaGLBuffer<float>& positions, CudaGLBuffer<float>& depths, int N)
