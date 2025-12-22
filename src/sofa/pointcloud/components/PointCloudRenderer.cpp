@@ -29,6 +29,7 @@
 #include <Eigen/Dense>
 #include <sofa/helper/system/FileRepository.h>
 #include <sofa/pointcloud/components/PointCloudRendererBackend.h>
+#include <sofa/helper/ScopedAdvancedTimer.h>
 
 namespace sofa::core
 {
@@ -238,6 +239,8 @@ void PointCloudRenderer::transform(float scale,
 
 void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
 {
+    SCOPED_TIMER("PointCloud::doDrawVisual");
+
     auto viewport = vparams->viewport();
 
     Eigen::Matrix4f projmat;
@@ -312,6 +315,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             msg_warning() << "         data set offset & size " << beginIndex << ", " << size;
         }
     }else{
+        SCOPED_TIMER("PointCloud::doDrawVisual::sceneParsing");
         for(auto visual : visualModels)
         {
             visual->updateVisual(vparams);
@@ -338,10 +342,14 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
                 frameMap[frameIndices[i]].push_back(offset+i);
             }
 
-            // Now we need to apply the transformation
-            this->transform(scale,
-                            initFrames,
-                            frames, frameMap, renderingData.xyz, renderingData.rot, renderingData.scale);
+            {
+                SCOPED_TIMER("PointCloud::doDrawVisual::sceneTransform");
+                // Now we need to apply the transformation
+                this->transform(scale,
+                                initFrames,
+                                frames, frameMap, renderingData.xyz, renderingData.rot, renderingData.scale);
+
+            }
             msg_warning() << "Updating a new data set " << visual->getPathName() << " with frames " << frames.size();
             msg_warning() << "         data set offset & size " << offset << ", " << size;
             updatesBufferParts.push_back({offset,size});
@@ -376,22 +384,27 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
 
     defaulttype::Rigid3Types::Coord type;
 
-    vparams->drawTool()->pushMatrix();
-    float glTransform[16];
-    type.writeOpenGlMatrix ( glTransform );
-    Eigen::Matrix4f transform {glTransform };
+    {
+        SCOPED_TIMER("PointCloud::doDrawVisual::renderingSetupUp");
+
+        vparams->drawTool()->pushMatrix();
+        float glTransform[16];
+        type.writeOpenGlMatrix ( glTransform );
+        Eigen::Matrix4f transform {glTransform };
 
 
-    shader.TurnOn();
-    int max_sh_dim = 48;
+        shader.TurnOn();
+        int max_sh_dim = 48;
 
-    shader.SetMatrix4(shader.GetVariable("projmat"), 1, GL_FALSE, projmat.data());
-    shader.SetMatrix4(shader.GetVariable("viewmat"), 1, GL_FALSE, viewmat.data());
-    shader.SetFloatVector3(shader.GetVariable("cam_pos"), 1, cam_pos.data());
-    shader.SetFloatVector2(shader.GetVariable("tanxy"), 1, tanxy.data());
-    shader.SetFloat(shader.GetVariable("focal"), focal);
-    shader.SetInt(shader.GetVariable("max_sh_dim"), max_sh_dim);
-    shader.SetInt(shader.GetVariable("render_mod"), mode);
+
+        shader.SetMatrix4(shader.GetVariable("projmat"), 1, GL_FALSE, projmat.data());
+        shader.SetMatrix4(shader.GetVariable("viewmat"), 1, GL_FALSE, viewmat.data());
+        shader.SetFloatVector3(shader.GetVariable("cam_pos"), 1, cam_pos.data());
+        shader.SetFloatVector2(shader.GetVariable("tanxy"), 1, tanxy.data());
+        shader.SetFloat(shader.GetVariable("focal"), focal);
+        shader.SetInt(shader.GetVariable("max_sh_dim"), max_sh_dim);
+        shader.SetInt(shader.GetVariable("render_mod"), mode);
+    }
 
     glDisable(GL_CULL_FACE);
     glEnable(GL_BLEND);
@@ -419,15 +432,28 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         indices = range(renderingData.size());
 
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::POSITION]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.xyz.rows() * sizeof(float) * 3, renderingData.xyz.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_splat[SplatProperty::POSITION]);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::ROTATION]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.rot.rows() * sizeof(float) * 4, renderingData.rot.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssbo_splat[SplatProperty::ROTATION]);
     }
 
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::POSITION]);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.xyz.rows() * sizeof(float) * 3, renderingData.xyz.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_splat[SplatProperty::POSITION]);
+    std::cout << "UPDATE BUFFER PARTS " << updatesBufferParts.size() << std::endl;
+    if(updatesBufferParts.size())
+    {
+        SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate");
 
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::ROTATION]);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.rot.rows() * sizeof(float) * 4, renderingData.rot.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssbo_splat[SplatProperty::ROTATION]);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::POSITION]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.xyz.rows() * sizeof(float) * 3, renderingData.xyz.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_splat[SplatProperty::POSITION]);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::ROTATION]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.rot.rows() * sizeof(float) * 4, renderingData.rot.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssbo_splat[SplatProperty::ROTATION]);
+    }
 
     if(depths.size()!=indices.size()){
         std::cout << "RESIZE DEPTH BUFFER" << std::endl;
@@ -441,30 +467,36 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
     }
 
-    if(d_withCuda.getValue())
     {
-        PointCloudRendererBackend::transform_and_sort_cuda(viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
-    }else
-    {
-        PointCloudRendererBackend::transform_and_sort_cpu(viewmat, renderingData.xyz,
-                                                          depths, indices);
+        SCOPED_TIMER("PointCloud::doDrawVisual::splatSorting");
 
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
+        if(d_withCuda.getValue())
+        {
+            PointCloudRendererBackend::transform_and_sort_cuda(viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
+        }else
+        {
+            PointCloudRendererBackend::transform_and_sort_cpu(viewmat, renderingData.xyz,
+                                                              depths, indices);
+
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
+            glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
+        }
     }
 
-    glBindBuffer(GL_ARRAY_BUFFER, _vbo);
-    glBindVertexArray(_vao);
-    glEnableVertexAttribArray(0);
+    {
+        SCOPED_TIMER("PointCloud::doDrawVisual::splatRendering");
+        glBindBuffer(GL_ARRAY_BUFFER, _vbo);
+        glBindVertexArray(_vao);
+        glEnableVertexAttribArray(0);
 
-    glDrawArraysInstanced(GL_POINTS, 0, 1, indices.size());
+        glDrawArraysInstanced(GL_POINTS, 0, 1, indices.size());
 
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glDisableVertexAttribArray(0);
-    glBindVertexArray(0);
-
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glDisableVertexAttribArray(0);
+        glBindVertexArray(0);
+    }
     shader.TurnOff();
 
     glEnable(GL_CULL_FACE);

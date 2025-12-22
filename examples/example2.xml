@@ -4,7 +4,7 @@
     <RequiredPlugin name="Sofa.PointCloud"/>
    
     <InteractiveCamera name="camera"/>
-    <PointCloudRenderer camera="@camera"/> 
+    <PointCloudRenderer camera="@camera" withCuda="false"/> 
 
     <EulerImplicitSolver/>
     <SparseLDLSolver/> 

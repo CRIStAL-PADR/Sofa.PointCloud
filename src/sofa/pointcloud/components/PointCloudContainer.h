@@ -55,7 +55,7 @@ public:
     DataFileName d_filename;
 
     void init() override;
-    void computeBBox(const core::ExecParams* /* params */, bool /*onlyVisible*/=false) override;
+    void updateBBox();
 
     bool load(const std::string& filename, int max_sh_degree = 3);
 

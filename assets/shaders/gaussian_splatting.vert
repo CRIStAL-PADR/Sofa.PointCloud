@@ -49,7 +49,13 @@ void main()
     g_pos_screen.xyz = g_pos_screen.xyz / g_pos_screen.w;
     g_pos_screen.w = 1.f;
 
-    if (any(greaterThan(abs(g_pos_screen.xyz), vec3(1.3))))
+    if (any(greaterThan(abs(g_pos_screen.xy), vec2(2.0))))
+      return;
+
+    if(g_pos_screen.z < 0.5)
+      return;
+
+    if(g_pos_screen.z > 1.0)
       return;
 
     splat_index = splat_idx;

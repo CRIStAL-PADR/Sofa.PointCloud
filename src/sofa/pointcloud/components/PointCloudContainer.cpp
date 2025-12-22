@@ -73,6 +73,11 @@ PointCloudContainer::PointCloudContainer() :
   , d_sphericalHarmonics(initData(&d_sphericalHarmonics, "sphericalHarmonics", ""))
   , d_indices(initData(&d_indices, "indices", "Indices"))
 {
+    addUpdateCallback("updateBox", {&d_positions}, [this](const sofa::core::DataTracker& tracker)
+    {
+        updateBBox();
+        return core::objectmodel::ComponentState::Valid;
+    },{&f_bbox});
 }
 
 PointCloudContainer::~PointCloudContainer()
@@ -95,11 +100,8 @@ void PointCloudContainer::init()
     d_componentState = core::objectmodel::ComponentState::Valid;
 }
 
-void PointCloudContainer::computeBBox(const core::ExecParams* params, bool onlyVisible)
+void PointCloudContainer::updateBBox()
 {
-    SOFA_UNUSED(params);
-    SOFA_UNUSED(onlyVisible);
-
     if(isComponentStateInvalid())
         return;
 

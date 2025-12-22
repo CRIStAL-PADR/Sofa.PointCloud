@@ -46,7 +46,7 @@ set(SOURCE_FILES
 
 add_library(${PROJECT_NAME} SHARED ${HEADER_FILES} ${SOURCE_FILES})
 target_link_libraries(${PROJECT_NAME} PUBLIC Sofa.Core Sofa.Component.Visual Sofa.GL SofaPython3::Plugin tbb)
-set_target_properties(${PROJECT_NAME}  PROPERTIES CUDA_ARCHITECTURES "70;75;86")
+set_target_properties(${PROJECT_NAME}  PROPERTIES CUDA_ARCHITECTURES "native")
 
 sofa_create_package_with_targets(
     PACKAGE_NAME ${PROJECT_NAME}

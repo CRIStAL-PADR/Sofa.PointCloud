@@ -3,7 +3,11 @@
 #include <cub/cub.cuh>
 #include <thrust/device_vector.h>
 #include <thrust/sort.h>
+#include <cub/device/device_radix_sort.cuh>
+#include <cuda_fp16.h>
 #include <cuda_gl_interop.h>
+#include <tbb/tbb.h>
+
 
 #define CUDA_CHECK(call) do { \
   cudaError_t err = call; \
@@ -91,7 +95,7 @@ void PointCloudRendererBackend::sort_float_int(float* h_keys, int* h_values, int
 
 }
 
-void project_to_z(const Eigen::Matrix4f&, CudaGLBuffer<float>& positions, CudaGLBuffer<float>& z, const int N);
+void project_to_z(const Eigen::Matrix4f&, CudaGLBuffer<float>& positions, CudaGLBuffer<float>& z, CudaGLBuffer<int>& indices, const int N);
 void sort_float_int(CudaGLBuffer<float>& values, CudaGLBuffer<int>& indices);
 
 void PointCloudRendererBackend::transform_and_sort_cuda(const Eigen::Matrix4f& mvp,
@@ -110,7 +114,7 @@ void PointCloudRendererBackend::transform_and_sort_cuda(const Eigen::Matrix4f& m
     depths->map();
     indices->map();
 
-    project_to_z(mvp, *positions, *depths, N);
+    project_to_z(mvp, *positions, *depths, *indices, N);
 
     auto [depths_ptr, depths_size] = depths->getSSBOAndSize();
     auto [indices_ptr, indices_size] = indices->getSSBOAndSize();
@@ -121,12 +125,52 @@ void PointCloudRendererBackend::transform_and_sort_cuda(const Eigen::Matrix4f& m
     thrust::device_ptr<float> d_depths(depths_ptr);
     thrust::device_ptr<int>   d_indices(indices_ptr);
 
-    thrust::sequence(d_indices, d_indices+N, (uint32_t)0);
-    thrust::stable_sort_by_key(d_depths, d_depths+N, d_indices);
+    float* d_depths_out;
+    int*   d_indices_out;
+    cudaMalloc(&d_depths_out,  N * sizeof(float));
+    cudaMalloc(&d_indices_out, N * sizeof(int));
+
+    float* d_depths_out2;
+    int*   d_indices_out2;
+    cudaMalloc(&d_depths_out2,  N * sizeof(float));
+    cudaMalloc(&d_indices_out2, N * sizeof(int));
+
+    cub::DoubleBuffer<float> d_keys(d_depths_out, d_depths_out2);
+    cub::DoubleBuffer<int>   d_vals(d_indices_out, d_indices_out2);
+
+    cudaMemcpy(d_keys.Current(), depths_ptr, N*sizeof(float),  cudaMemcpyDeviceToDevice);
+    cudaMemcpy(d_vals.Current(), indices_ptr, N*sizeof(int),  cudaMemcpyDeviceToDevice);
+
+    void*  d_temp = nullptr;
+    size_t temp_bytes = 0;
+
+    // Taille du buffer temporaire
+    cub::DeviceRadixSort::SortPairs(
+        d_temp, temp_bytes,
+        d_keys, d_vals,
+        N);
+
+    // Allocation
+    cudaMalloc(&d_temp, temp_bytes);
+
+    // Tri effectif
+    cub::DeviceRadixSort::SortPairs(
+        d_temp, temp_bytes,
+        d_keys, d_vals,
+        N);
+
+    cudaMemcpy(depths_ptr, d_keys.Current(), N*sizeof(float),  cudaMemcpyDeviceToDevice);
+    cudaMemcpy(indices_ptr, d_vals.Current(), N*sizeof(int),  cudaMemcpyDeviceToDevice);
 
     positions->unmap();
     depths->unmap();
     indices->unmap();
+
+    cudaFree(d_depths_out);
+    cudaFree(d_indices_out);
+    cudaFree(d_depths_out2);
+    cudaFree(d_indices_out2);
+    cudaFree(d_temp);
 }
 
 
@@ -156,6 +200,7 @@ __device__ float compute_depth(const vec3& pos, const float* mvp)
 __global__ void compute_depth_kernel(
     const vec3* positions,
     float* depths,
+    int* indices,
     const int N,
     const float* proj
 )
@@ -164,9 +209,14 @@ __global__ void compute_depth_kernel(
     if (idx >= N) return;
 
     depths[idx] = compute_depth(positions[idx], proj);
+    indices[idx] = idx;
 }
 
-void project_to_z(const Eigen::Matrix4f& mvp, CudaGLBuffer<float>& positions, CudaGLBuffer<float>& depths, int N)
+void project_to_z(const Eigen::Matrix4f& mvp,
+                  CudaGLBuffer<float>& positions,
+                  CudaGLBuffer<float>& depths,
+                  CudaGLBuffer<int>& indices,
+                  int N)
 {
     float* d_proj;
     cudaMalloc(&d_proj, sizeof(float) * 16);
@@ -174,11 +224,14 @@ void project_to_z(const Eigen::Matrix4f& mvp, CudaGLBuffer<float>& positions, Cu
 
     auto [posPtr, posSize] = positions.getSSBOAndSize();
     auto [depthPtr, depthSize] = depths.getSSBOAndSize();
+    auto [indicesPtr, indicesSize] = indices.getSSBOAndSize();
 
     // 2. Lancer le kernel
     int blockSize = 256;
     int gridSize = (N + blockSize - 1) / blockSize;
-    compute_depth_kernel<<<gridSize, blockSize>>>((const vec3*)posPtr, (float*)depthPtr, N, (const float*)d_proj);
+    compute_depth_kernel<<<gridSize, blockSize>>>((const vec3*)posPtr, (float*)depthPtr,
+                                                  (int*)indicesPtr,
+                                                  N, (const float*)d_proj);
 
     cudaDeviceSynchronize();
     cudaFree(d_proj);
@@ -186,7 +239,9 @@ void project_to_z(const Eigen::Matrix4f& mvp, CudaGLBuffer<float>& positions, Cu
 
 bool PointCloudRendererBackend::hasCuda()
 {
-    return true;
+    int deviceCount = 0;
+    cudaGetDeviceCount(&deviceCount);
+    return deviceCount > 0;
 }
 
 void PointCloudRendererBackend::transform_and_sort_cpu(const Eigen::Matrix4f& P,
@@ -202,8 +257,10 @@ void PointCloudRendererBackend::transform_and_sort_cpu(const Eigen::Matrix4f& P,
         depths[i] = proj_row.dot(center);
     }
 
-    std::sort(indices.begin(), indices.end(),
-                       [&](int i, int j) {
-        return depths[i] < depths[j];
-    });
+    sort_float_int(depths.data(), indices.data(), depths.size());
+
+    //tbb::parallel_sort(indices.begin(), indices.end(),
+    //                   [&](int i, int j) {
+    //    return depths[i] < depths[j];
+    //});
 }

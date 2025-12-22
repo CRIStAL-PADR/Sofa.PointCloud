@@ -16,8 +16,13 @@ void main(){
     if (power > 0.f)
         discard;
     float opacity = min(0.99f, alpha * exp(power));
-    if (opacity < 1.f / 255.f)
-        discard;
+
+    if (opacity < 1.f / 255.f){
+      //FragColor = vec4(1.0,0.0,0.0,1.0);
+      //return;
+      discard;
+    }
+
     FragColor = vec4(color, opacity);
 
     if (render_mod == 5){
