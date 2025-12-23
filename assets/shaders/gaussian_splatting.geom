@@ -59,6 +59,7 @@ out vec3 color;
 out float alpha;
 out vec3 conic;
 out vec2 coordxy;  // local coordinate in quad, unit in pixel
+out float discardThresold;
 
 mat3 computeCov3D(vec3 scale, vec4 q)  // should be correct
 {
@@ -159,6 +160,7 @@ void main()
   conic = vec3(cov2d.z * det_inv, -cov2d.y * det_inv, cov2d.x * det_inv);
 
   alpha = g_opacity;
+  discardThresold = -log(255.0 * alpha);
 
   // Convert SH to color
   int sh_start = splat_idx;

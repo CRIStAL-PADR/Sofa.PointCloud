@@ -133,8 +133,12 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     interop_depths = PointCloudRendererBackend::createBuffer<float>(_ssbo_splat[SplatProperty::DEPTHS]);
     interop_indices = PointCloudRendererBackend::createBuffer<int>(_ssbo_splat[SplatProperty::INDEX]);
 
-    if(!PointCloudRendererBackend::hasCuda())
+    if(!PointCloudRendererBackend::hasCuda()){
         d_withCuda.setValue(false);
+        msg_warning() << "CUDA is not detected, falling back to pure (low performance) opengl renderer.";
+    }else{
+        msg_info() << "CUDA detected.";
+    }
 }
 
 void PointCloudRenderer::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
@@ -236,6 +240,90 @@ void PointCloudRenderer::transform(float scale,
         }
     }
 }
+
+// Retourne 6 plans : left, right, bottom, top, near, far
+std::array<Plane, 6> extractFrustumPlanes(
+    const Eigen::Matrix4f& projMat,
+    const Eigen::Matrix4f& viewModelMat)
+{
+    std::array<Plane, 6> planes;
+
+    Eigen::Matrix4f clipMat = projMat * viewModelMat; // colonne-major convention Eigen
+
+    // Pour simplifier
+    auto row = [&](int i){ return clipMat.row(i); };
+
+    // Left
+    planes[0].normal = (row(3) + row(0)).head<3>();
+    planes[0].d = (row(3) + row(0))(3);
+    // Right
+    planes[1].normal = (row(3) - row(0)).head<3>();
+    planes[1].d = (row(3) - row(0))(3);
+    // Bottom
+    planes[2].normal = (row(3) + row(1)).head<3>();
+    planes[2].d = (row(3) + row(1))(3);
+    // Top
+    planes[3].normal = (row(3) - row(1)).head<3>();
+    planes[3].d = (row(3) - row(1))(3);
+    // Near
+    planes[4].normal = (row(3) + row(2)).head<3>();
+    planes[4].d = (row(3) + row(2))(3);
+    // Far
+    planes[5].normal = (row(3) - row(2)).head<3>();
+    planes[5].d = (row(3) - row(2))(3);
+
+    // Normalisation
+    for(auto& p : planes){
+        float len = p.normal.norm();
+        p.normal /= len;
+        p.d /= len;
+    }
+
+    return planes;
+}
+
+bool isSphereInsideFrustum(const std::array<Plane,6>& planes,
+                           const Eigen::Vector3f& center,
+                           float radius)
+{
+    for(const auto& p : planes){
+        if (p.normal.dot(center) + p.d + radius < 0.0f)
+            return false; // complètement en dehors
+    }
+    return true; // intersecte ou à l’intérieur
+}
+
+void generatePlaneMesh(const Plane& plane, std::vector<sofa::type::Vec3>& outVertices)
+{
+    Eigen::Vector3f pointOnPlane = plane.normal * (-plane.d / plane.normal.dot(plane.normal));
+    sofa::type::Vec3 pt = sofa::type::Vec3(pointOnPlane.data());
+
+    // Trouve deux vecteurs orthogonaux au plan
+    Eigen::Vector3f u = plane.normal.cross(Eigen::Vector3f(0,1,0));
+    if(u.norm() < 0.1f) u = plane.normal.cross(Eigen::Vector3f(1,0,0));
+    u = u.normalized();
+    Eigen::Vector3f v = plane.normal.cross(u).normalized();
+
+    float size = 10.0f; // taille du quad
+
+    // 4 coins
+    outVertices.push_back(pt + sofa::type::Vec3(Eigen::Vector3f(size*(u+v)).data()));
+    outVertices.push_back(pt + sofa::type::Vec3(Eigen::Vector3f(size*(u-v)).data()));
+    outVertices.push_back(pt + sofa::type::Vec3(Eigen::Vector3f(size*(-u-v)).data()));
+    outVertices.push_back(pt + sofa::type::Vec3(Eigen::Vector3f(size*(-u+v)).data()));
+}
+
+void PointCloudRenderer::draw(const sofa::core::visual::VisualParams* vparams)
+{
+    return;
+    for(auto plane : clipPlanes)
+    {
+        std::vector<sofa::type::Vec3> points;
+        generatePlaneMesh(plane, points);
+        vparams->drawTool()->drawQuads(points, type::RGBAColor::red());
+    }
+}
+
 
 void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
 {
@@ -359,6 +447,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
 
     isFirstRun=false;
 
+
     // In case there is not rendering data, then just exit
     if(renderingData.size()==0)
         return;
@@ -382,8 +471,9 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
 
     auto mode = d_renderMode.getValue().getSelectedId();
 
-    defaulttype::Rigid3Types::Coord type;
+    clipPlanes = extractFrustumPlanes(projmat, viewmat);
 
+    defaulttype::Rigid3Types::Coord type;
     {
         SCOPED_TIMER("PointCloud::doDrawVisual::renderingSetupUp");
 
@@ -467,6 +557,8 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
     }
 
+
+    std::vector<int> selectedIndices;
     {
         SCOPED_TIMER("PointCloud::doDrawVisual::splatSorting");
 
@@ -475,11 +567,20 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             PointCloudRendererBackend::transform_and_sort_cuda(viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
         }else
         {
+
+            // Plane clipping
+            for(auto indice : indices )
+            {
+                if(isSphereInsideFrustum(clipPlanes, renderingData.xyz.row(indice), 0.0))
+                {
+                    selectedIndices.push_back(indice);
+                }
+            }
             PointCloudRendererBackend::transform_and_sort_cpu(viewmat, renderingData.xyz,
-                                                              depths, indices);
+                                                              depths, selectedIndices);
 
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
-            glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
+            glBufferData(GL_SHADER_STORAGE_BUFFER,  selectedIndices.size() * sizeof(int),  selectedIndices.data(), GL_DYNAMIC_DRAW);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
         }
     }
@@ -490,7 +591,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBindVertexArray(_vao);
         glEnableVertexAttribArray(0);
 
-        glDrawArraysInstanced(GL_POINTS, 0, 1, indices.size());
+        glDrawArraysInstanced(GL_POINTS, 0, 1, selectedIndices.size());
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);

@@ -37,6 +37,12 @@ namespace sofa::pointcloud::components
 using sofa::core::objectmodel::BaseObject;
 using sofa::component::visual::BaseCamera;
 
+
+struct Plane {
+    Eigen::Vector3f normal; // (a,b,c)
+    float d;                // d
+};
+
 // References:
 //  - https://huggingface.co/blog/gaussian-splatting
 class PointCloudRenderer : public sofa::core::visual::VisualModel {
@@ -61,6 +67,8 @@ public:
     void doInitVisual(const sofa::core::visual::VisualParams* vparams) final;
     void doDrawVisual(const sofa::core::visual::VisualParams* vparams) final;
     void doUpdateVisual(const sofa::core::visual::VisualParams* vparams) final;
+
+    void draw(const sofa::core::visual::VisualParams* vparams) final;
 
 private:
     GLuint              _vao;
@@ -92,6 +100,8 @@ private:
     std::map<unsigned int, std::vector<int>> directionalIndices;
 
     std::map<PointCloudVisualModel*, std::tuple<int,int>> dataCache;
+
+    std::array<Plane,6 > clipPlanes;
 
     void transform(float uniformScale,
                    const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
