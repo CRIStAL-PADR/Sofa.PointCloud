@@ -557,24 +557,29 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
     }
 
-
-    std::vector<int> selectedIndices;
+    int splatsToDraw = 0;
     {
         SCOPED_TIMER("PointCloud::doDrawVisual::splatSorting");
 
         if(d_withCuda.getValue())
         {
-            PointCloudRendererBackend::transform_and_sort_cuda(viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
+            splatsToDraw = PointCloudRendererBackend::transform_and_sort_cuda(
+                        clipPlanes,
+                        viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
         }else
         {
+            std::vector<int> selectedIndices;
+            {
 
+            SCOPED_TIMER("PointCloud::doDrawVisual::planeClipping");
             // Plane clipping
             for(auto indice : indices )
             {
-                if(isSphereInsideFrustum(clipPlanes, renderingData.xyz.row(indice), 0.0))
+                if(isSphereInsideFrustum(clipPlanes, renderingData.xyz.row(indice), 0.05))
                 {
                     selectedIndices.push_back(indice);
                 }
+            }
             }
             PointCloudRendererBackend::transform_and_sort_cpu(viewmat, renderingData.xyz,
                                                               depths, selectedIndices);
@@ -582,16 +587,18 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
             glBufferData(GL_SHADER_STORAGE_BUFFER,  selectedIndices.size() * sizeof(int),  selectedIndices.data(), GL_DYNAMIC_DRAW);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
+            splatsToDraw=selectedIndices.size();
         }
     }
 
     {
+        std::cout << "Rendering "<< splatsToDraw << "/" << renderingData.size() << " splats " << std::endl;
         SCOPED_TIMER("PointCloud::doDrawVisual::splatRendering");
         glBindBuffer(GL_ARRAY_BUFFER, _vbo);
         glBindVertexArray(_vao);
         glEnableVertexAttribArray(0);
 
-        glDrawArraysInstanced(GL_POINTS, 0, 1, selectedIndices.size());
+        glDrawArraysInstanced(GL_POINTS, 0, 1, splatsToDraw);
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);

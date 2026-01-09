@@ -37,12 +37,6 @@ namespace sofa::pointcloud::components
 using sofa::core::objectmodel::BaseObject;
 using sofa::component::visual::BaseCamera;
 
-
-struct Plane {
-    Eigen::Vector3f normal; // (a,b,c)
-    float d;                // d
-};
-
 // References:
 //  - https://huggingface.co/blog/gaussian-splatting
 class PointCloudRenderer : public sofa::core::visual::VisualModel {
