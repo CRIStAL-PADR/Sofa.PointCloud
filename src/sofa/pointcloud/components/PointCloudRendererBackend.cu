@@ -1,5 +1,4 @@
 #include <sofa/pointcloud/components/PointCloudRendererBackend.h>
-
 #include <cub/cub.cuh>
 #include <thrust/device_vector.h>
 #include <thrust/sort.h>
