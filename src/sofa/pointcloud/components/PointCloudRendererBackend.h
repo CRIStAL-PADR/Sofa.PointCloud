@@ -35,6 +35,11 @@ public:
     virtual void getValueAsInts(std::vector<int>& dest) = 0;
 };
 
+struct Plane {
+    Eigen::Vector3f normal; // (a,b,c)
+    float d;                // d
+};
+
 class PointCloudRendererBackend
 {
 public:
@@ -43,7 +48,9 @@ public:
     template<class T> static BaseGLBuffer* createBuffer(GLuint ssboID);
 
     static void sort_float_int(float* keys, int* values, int N);
-    static void transform_and_sort_cuda(const Eigen::Matrix4f&, BaseGLBuffer* positions,
+    static int transform_and_sort_cuda(
+            const std::array<Plane,6>& clipPlanes,
+            const Eigen::Matrix4f&, BaseGLBuffer* positions,
                                         BaseGLBuffer* h_keys, BaseGLBuffer* h_values, int N);
 
     static void transform_and_sort_cpu(const Eigen::Matrix4f& P,

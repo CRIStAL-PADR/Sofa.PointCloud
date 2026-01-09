@@ -3,6 +3,7 @@
 #include <cub/cub.cuh>
 #include <thrust/device_vector.h>
 #include <thrust/sort.h>
+#include <thrust/remove.h>
 #include <cub/device/device_radix_sort.cuh>
 #include <cuda_fp16.h>
 #include <cuda_gl_interop.h>
@@ -95,110 +96,116 @@ void PointCloudRendererBackend::sort_float_int(float* h_keys, int* h_values, int
 
 }
 
-void project_to_z(const Eigen::Matrix4f&, CudaGLBuffer<float>& positions,
-                  short* depthPtr, int* indicesPtr, const int N);
-void sort_float_int(CudaGLBuffer<float>& values, CudaGLBuffer<int>& indices);
-
-class RadixSortBuffer
-{
-public:
-    int N {0};
-    cub::DoubleBuffer<short> keys;
-    cub::DoubleBuffer<int>   indices;
-    void* temporary_ptr{nullptr};
-    size_t temporary_size = 0;
-
-    void reset(int N_)
-    {
-        std::cout << "RESET CUDA BUFFER " << std::endl;
-        N = N_;
-
-        short* d_depths_out;
-        int*   d_indices_out;
-        cudaMalloc(&d_depths_out,  N * sizeof(short));
-        cudaMalloc(&d_indices_out, N * sizeof(int));
-
-        short* d_depths_out2;
-        int*   d_indices_out2;
-        cudaMalloc(&d_depths_out2,  N * sizeof(short));
-        cudaMalloc(&d_indices_out2, N * sizeof(int));
-
-        keys = cub::DoubleBuffer<short>(d_depths_out, d_depths_out2);
-        indices = cub::DoubleBuffer<int>(d_indices_out, d_indices_out2);
-
-        // Taille du buffer temporaire
-        cub::DeviceRadixSort::SortPairs(
-                    temporary_ptr, temporary_size,
-                    keys, indices,
-                    N);
-
-        // Allocation
-        cudaMalloc(&temporary_ptr, temporary_size);
-    }
-
-    ~RadixSortBuffer(){
-        cudaFree(temporary_ptr);
-        cudaFree(keys.d_buffers[0]);
-        cudaFree(keys.d_buffers[1]);
-        cudaFree(indices.d_buffers[0]);
-        cudaFree(indices.d_buffers[1]);
-    }
-};
-
-void PointCloudRendererBackend::transform_and_sort_cuda(const Eigen::Matrix4f& mvp,
-                                                        BaseGLBuffer* positions_, BaseGLBuffer* depths_, BaseGLBuffer* indices_, int N)
-{
-    static RadixSortBuffer buffers;
-
-    auto positions = dynamic_cast<CudaGLBuffer<float>*>(positions_);
-    //auto depths = dynamic_cast<CudaGLBuffer<float>*>(depths_);
-    auto indices = dynamic_cast<CudaGLBuffer<int>*>(indices_);
-
-    assert(positions!=nullptr);
-    //assert(depths!=nullptr);
-    assert(indices!=nullptr);
-
-    if(buffers.N < N)
-    {
-        buffers.reset(N);
-    }
-
-    //glFinish();
-
-    positions->map();
-    indices->map();
-
-    buffers.keys.Alternate();
-    buffers.indices.Alternate();
-
-    project_to_z(mvp, *positions,
-                 buffers.keys.Current(), buffers.indices.Current(), N);
-
-    auto [indices_ptr, indices_size] = indices->getSSBOAndSize();
-
-    assert(depths_size/sizeof(short) == N);
-    assert(indices_size/sizeof(int) == N);
-
-    // Tri effectif
-    cub::DeviceRadixSort::SortPairs(
-                buffers.temporary_ptr, buffers.temporary_size,
-                buffers.keys, buffers.indices,
-                buffers.N);
-
-    cudaMemcpy(indices_ptr, buffers.indices.Current(), N*sizeof(int),  cudaMemcpyDeviceToDevice);
-
-    positions->unmap();
-    //depths->unmap();
-    indices->unmap();
-}
-
 
 #include <cuda_runtime.h>
 
-struct vec3 { float x, y, z; };
-struct mat4 { float m[16]; }; // row-major
+struct vec3 {
+    float x, y, z;
 
-__device__ short compute_depth(const vec3& pos, const float* mvp)
+    __device__ inline float dot(const vec3& b) const { return x*b.x + y*b.y + z*b.z; }
+};
+struct mat4 { float m[16]; }; // row-major
+struct plane {
+    vec3 normal;
+    float d;
+};
+
+void project_to_z(const std::array<Plane, 6>& clipPlanes,
+                  const Eigen::Matrix4f&,
+                  const vec3* positions,
+                  float* depthPtr, int* indicesPtr, const int N);
+void sort_float_int(CudaGLBuffer<float>& values, CudaGLBuffer<int>& indices);
+
+struct remove_if_second_is_minus_one
+{
+    __host__ __device__
+    bool operator()(const thrust::tuple<const float&, const int&>& t) const
+    {
+        return thrust::get<1>(t) == -1;
+    }
+};
+
+int PointCloudRendererBackend::transform_and_sort_cuda(
+        const std::array<Plane, 6>& clipPlanes,
+        const Eigen::Matrix4f& mvp,
+        BaseGLBuffer* positions_, BaseGLBuffer* depths_, BaseGLBuffer* indices_, int N)
+{
+
+    auto positions = dynamic_cast<CudaGLBuffer<float>*>(positions_);
+    auto depths = dynamic_cast<CudaGLBuffer<float>*>(depths_);
+    auto indices = dynamic_cast<CudaGLBuffer<int>*>(indices_);
+
+    assert(positions!=nullptr);
+    assert(depths!=nullptr);
+    assert(indices!=nullptr);
+
+    glFinish();
+
+    positions->map();
+    indices->map();
+    depths->map();
+
+    auto [indices_ptr, indices_size] = indices->getSSBOAndSize();
+    auto [depths_ptr, depths_size] = depths->getSSBOAndSize();
+    auto [positions_ptr, positions_size] = positions->getSSBOAndSize();
+
+    assert(positions_size/(3*sizeof(float)) == N);
+    assert(depths_size/sizeof(float) == N);
+    assert(indices_size/sizeof(int) == N);
+
+    thrust::device_ptr<int> indices_t{indices_ptr};
+    thrust::device_ptr<float> positions_t{positions_ptr};
+    thrust::device_ptr<float> depths_t{depths_ptr};
+
+    // Starts a kernel to quickly exclude some splats and compute depth on the remaining.
+    project_to_z(clipPlanes,
+                 mvp,
+                 (vec3*)positions_ptr,
+                 depths_ptr, indices_ptr, N);
+
+    // Filter out the "non process"
+    //auto end = thrust::remove(indices_t, indices_t+N, -1);
+    //int splatToSort = end - indices_t;
+
+    auto zipped_begin = thrust::make_zip_iterator(thrust::make_tuple(depths_t, indices_t));
+    auto zipped_end = zipped_begin + N;
+
+    auto new_end = thrust::remove_if(
+        thrust::device,
+        zipped_begin,
+        zipped_end,
+        remove_if_second_is_minus_one()
+    );
+
+    size_t splatToSort = new_end - zipped_begin;
+
+    if(splatToSort >= 2)
+    {
+
+        // Tri : keys → triées, values → réarrangées dans le même ordre
+        thrust::sort_by_key(depths_t, depths_t+splatToSort, indices_t);
+    }
+//    std::vector<float> depth_tmp;
+//    depth_tmp.resize(splatToSort,-1.0);
+//    thrust::copy(depths_t, depths_t+splatToSort, depth_tmp.data());
+//    std::stringstream tmp;
+//    tmp << "DEPTHS: ";
+//    for(unsigned int i=0;i<10;i++)
+//    {
+//        tmp << depth_tmp[i] << " ";
+//    }
+//    std::cout << tmp.str() << std::endl;
+
+    positions->unmap();
+    depths->unmap();
+    indices->unmap();
+
+    return splatToSort;
+}
+
+
+
+__device__ float compute_depth(const vec3& pos, const float* mvp)
 {
     const mat4* proj = (const mat4*)mvp;
 
@@ -213,12 +220,26 @@ __device__ short compute_depth(const vec3& pos, const float* mvp)
     float proj2 = proj->m[2*4 + 2];
 
     // produit depth scalaire
-    return ((proj0 * x + proj1 * y + proj2 * z)/200)*65536;
+    return (proj0 * x + proj1 * y + proj2 * z);
+}
+
+__device__ bool isSphereInsideFrustum(
+                           const plane* planes,
+                           const vec3& center,
+                           float radius)
+{
+    for(int i=0;i<6;++i)
+    {
+        if (planes[i].normal.dot(center) + planes[i].d + radius < 0.0f)
+            return false; // complètement en dehors
+    }
+    return true; // intersecte ou à l’intérieur
 }
 
 __global__ void compute_depth_kernel(
+        const plane* planes,
         const vec3* positions,
-        short* depths,
+        float* depths,
         int* indices,
         const int N,
         const float* proj
@@ -226,32 +247,44 @@ __global__ void compute_depth_kernel(
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= N) return;
-
-    depths[idx] = compute_depth(positions[idx], proj);
-    indices[idx] = idx;
+    auto p = positions[idx];
+    if(isSphereInsideFrustum(planes, vec3{p.x,p.y,p.z}, 0.05)){
+        depths[idx] = compute_depth(positions[idx], proj);
+        indices[idx] = idx;
+    }else{
+        depths[idx] = -4.0;
+        indices[idx] = -1;
+    }
 }
 
-void project_to_z(const Eigen::Matrix4f& mvp,
-                  CudaGLBuffer<float>& positions,
-                  short* depthPtr,
+void project_to_z(const std::array<Plane,6>& clipPlanes,
+                  const Eigen::Matrix4f& mvp,
+                  const vec3* posPtr,
+                  float* depthPtr,
                   int* indicesPtr,
                   int N)
 {
+    // Copy projection matrix
     float* d_proj;
     cudaMalloc(&d_proj, sizeof(float) * 16);
     cudaMemcpy(d_proj, mvp.data(), sizeof(float) * 16, cudaMemcpyHostToDevice);
 
-    auto [posPtr, posSize] = positions.getSSBOAndSize();
+    // Copy clip planes
+    plane* planes;
+    cudaMalloc(&planes, sizeof(plane) * 6);
+    cudaMemcpy(planes, clipPlanes.data(), sizeof(plane) * 6, cudaMemcpyHostToDevice);
 
     // 2. Lancer le kernel
     int blockSize = 256;
     int gridSize = (N + blockSize - 1) / blockSize;
-    compute_depth_kernel<<<gridSize, blockSize>>>((const vec3*)posPtr, (short*)depthPtr,
+    compute_depth_kernel<<<gridSize, blockSize>>>(planes,
+                                                  (const vec3*)posPtr, (float*)depthPtr,
                                                   (int*)indicesPtr,
                                                   N, (const float*)d_proj);
 
     cudaDeviceSynchronize();
     cudaFree(d_proj);
+    cudaFree(planes);
 }
 
 bool PointCloudRendererBackend::hasCuda()
