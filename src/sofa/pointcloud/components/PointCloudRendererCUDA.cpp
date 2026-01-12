@@ -89,13 +89,6 @@ std::function<char*(size_t N)> resizeFunctional(std::vector<float> t) {
 
 void PointCloudRendererCUDA::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
 {
-    //    static void markVisible(
-    //        int P,
-    //        float* means3D,
-    //        float* viewmatrix,
-    //        float* projmatrix,
-    //        bool* present);
-
     auto viewport = vparams->viewport();
 
     Eigen::Matrix4f projmat;

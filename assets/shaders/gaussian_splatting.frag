@@ -28,8 +28,8 @@ void main(){
     float opacity = min(0.99f, alpha * exp(power));
 
     FragColor = vec4(color, opacity);
-//        if (render_mod == 5){
-//            FragColor.a = FragColor.a > 0.22 ? 1 : 0;
-//            FragColor.rgb = FragColor.rgb * exp(power);
-//        }
+    if (render_mod == 5){
+        FragColor.a = FragColor.a > 0.22 ? 1 : 0;
+        FragColor.rgb = FragColor.rgb * exp(power);
+    }
 }

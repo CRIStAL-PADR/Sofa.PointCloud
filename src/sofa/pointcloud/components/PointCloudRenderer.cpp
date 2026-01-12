@@ -110,15 +110,15 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     shader.InitShaders();
 
     // Q quad to render a ray-marcher
-    std::vector<float> _vertices = {0.0};
+    //std::vector<float> _vertices = {0.0};
 
     glGenVertexArrays(1, &_vao);
     glGenBuffers(1, &_vbo);
     glBindVertexArray(_vao);
     glBindBuffer(GL_ARRAY_BUFFER, _vbo);
 
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float), _vertices.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+    //glBufferData(GL_ARRAY_BUFFER, sizeof(float), _vertices.data(), GL_STATIC_DRAW);
+    //glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
     glGenBuffers(7, _ssbo_splat);
     for(auto i = 0;i<6;i++)
@@ -345,64 +345,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     msg_info() << "Found " << visualModels.size() << " gaussian splats visual models.";
 
     std::vector<std::tuple<int,int>> updatesBufferParts;
-    static bool isFirstRun = true;
-    if(isFirstRun)
     {
-        isFirstRun = false;
-        clear(renderingData);
-        for(auto visual : visualModels)
-        {
-            visual->updateVisual(vparams);
-
-            if(!visual->isComponentStateValid()){
-                continue;
-            }
-
-            if(!visual->l_geometry->data){
-                continue;
-            }
-            int offset = renderingData.xyz.rows();
-
-            //if(isFirstRun)
-            //{
-            //    visual->initTransform();
-            //}
-
-            //if(visual->d_isStaticModel.getValue())
-            //    hasStaticData=true;
-
-            // First build the reference geometry
-            int beginIndex = renderingData.size();
-            int size = visual->l_geometry->data->xyz.rows()*(3+4+3+1+visual->l_geometry->data->sh_dim());
-            dataCache[visual] = std::make_tuple(beginIndex, size);
-
-            append(renderingData.xyz, visual->l_geometry->data->xyz);
-            append(renderingData.sh, visual->l_geometry->data->sh);
-            append(renderingData.opacity, visual->l_geometry->data->opacity);
-            append(renderingData.scale, visual->l_geometry->data->scale);
-            append(renderingData.rot, visual->l_geometry->data->rot);
-
-            auto scale = visual->d_uniformScale.getValue();
-            auto initFrames = visual->initFrames;
-            auto frames = helper::getReadAccessor(visual->d_frames);
-            auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
-
-            std::vector<std::vector<int>> frameMap{frames.size()};
-            for(size_t i=0;i<frameIndices.size();++i)
-            {
-                frameMap[frameIndices[i]].push_back(offset+i);
-            }
-
-            //visual->doUpdateVisual(sofa::core::visual::VisualParams::defaultInstance());
-
-            // Now we need to apply the transformation
-            this->transform(scale,
-                            initFrames,
-                            frames, frameMap, renderingData.xyz, renderingData.rot, renderingData.scale);
-            msg_warning() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size();
-            msg_warning() << "         data set offset & size " << beginIndex << ", " << size;
-        }
-    }else{
         SCOPED_TIMER("PointCloud::doDrawVisual::sceneParsing");
         for(auto visual : visualModels)
         {
@@ -414,15 +357,44 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             if(!visual->l_geometry->data){
                 continue;
             }
-            if(visual->d_isStaticModel.getValue())
-                continue;
-
-            auto [offset, size] = dataCache[visual];
 
             auto scale = visual->d_uniformScale.getValue();
             auto initFrames = visual->initFrames;
             auto frames = helper::getReadAccessor(visual->d_frames);
             auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
+
+            if(!dataCache.contains(visual)){
+                int offset = renderingData.xyz.rows();
+                int beginIndex = renderingData.size();
+                int size = visual->l_geometry->data->xyz.rows()*(3+4+3+1+visual->l_geometry->data->sh_dim());
+                dataCache[visual] = std::make_tuple(beginIndex, size);
+
+                append(renderingData.xyz, visual->l_geometry->data->xyz);
+                append(renderingData.sh, visual->l_geometry->data->sh);
+                append(renderingData.opacity, visual->l_geometry->data->opacity);
+                append(renderingData.scale, visual->l_geometry->data->scale);
+                append(renderingData.rot, visual->l_geometry->data->rot);
+
+                std::vector<std::vector<int>> frameMap{frames.size()};
+                for(size_t i=0;i<frameIndices.size();++i)
+                {
+                    frameMap[frameIndices[i]].push_back(offset+i);
+                }
+
+                // Now we need to apply the transformation
+                this->transform(scale,
+                                initFrames,
+                                frames, frameMap, renderingData.xyz, renderingData.rot, renderingData.scale);
+                msg_warning() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size();
+                msg_warning() << "         data set offset & size " << beginIndex << ", " << size;
+                updatesBufferParts.push_back({offset,size});
+                continue;
+            }
+
+            if(visual->d_isStaticModel.getValue())
+                continue;
+
+            auto [offset, size] = dataCache[visual];
 
             std::vector<std::vector<int>> frameMap{frames.size()};
             for(size_t i=0;i<frameIndices.size();++i)
@@ -444,9 +416,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         }
     }
     msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
-
-    isFirstRun=false;
-
 
     // In case there is not rendering data, then just exit
     if(renderingData.size()==0)
@@ -485,7 +454,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
 
         shader.TurnOn();
         int max_sh_dim = 48;
-
 
         shader.SetMatrix4(shader.GetVariable("projmat"), 1, GL_FALSE, projmat.data());
         shader.SetMatrix4(shader.GetVariable("viewmat"), 1, GL_FALSE, viewmat.data());
@@ -531,7 +499,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssbo_splat[SplatProperty::ROTATION]);
     }
 
-    std::cout << "UPDATE BUFFER PARTS " << updatesBufferParts.size() << std::endl;
     if(updatesBufferParts.size())
     {
         SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate");
@@ -546,15 +513,14 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     }
 
     if(depths.size()!=indices.size()){
-        std::cout << "RESIZE DEPTH BUFFER" << std::endl;
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
+
         depths.resize(indices.size());
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::DEPTHS]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, depths.size() * sizeof(float), depths.data(), GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, _ssbo_splat[SplatProperty::DEPTHS]);
-
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
     }
 
     int splatsToDraw = 0;
@@ -596,13 +562,11 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         SCOPED_TIMER("PointCloud::doDrawVisual::splatRendering");
         glBindBuffer(GL_ARRAY_BUFFER, _vbo);
         glBindVertexArray(_vao);
-        glEnableVertexAttribArray(0);
 
         glDrawArraysInstanced(GL_POINTS, 0, 1, splatsToDraw);
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glDisableVertexAttribArray(0);
         glBindVertexArray(0);
     }
     shader.TurnOff();

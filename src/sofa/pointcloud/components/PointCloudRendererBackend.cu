@@ -1,4 +1,5 @@
 #include <sofa/pointcloud/components/PointCloudRendererBackend.h>
+#include <cuda_runtime.h>
 #include <cub/cub.cuh>
 #include <thrust/device_vector.h>
 #include <thrust/sort.h>
@@ -7,7 +8,7 @@
 #include <cuda_fp16.h>
 #include <cuda_gl_interop.h>
 #include <tbb/tbb.h>
-#include <algorithm>
+
 
 #define CUDA_CHECK(call) do { \
     cudaError_t err = call; \
@@ -80,24 +81,6 @@ template<> BaseGLBuffer* PointCloudRendererBackend::createBuffer<float>(GLuint s
     return new CudaGLBuffer<float>(ssboID);
 }
 
-void PointCloudRendererBackend::sort_float_int(float* h_keys, int* h_values, int N)
-{
-    // Copie sur GPU
-    thrust::device_vector<float> d_keys(h_keys, h_keys + N);
-    thrust::device_vector<int>   d_values(h_values, h_values + N);
-
-    // Tri : keys → triées, values → réarrangées dans le même ordre
-    thrust::sort_by_key(d_keys.begin(), d_keys.end(), d_values.begin());
-
-    // Copie vers CPU
-    thrust::copy(d_keys.begin(), d_keys.end(), h_keys);
-    thrust::copy(d_values.begin(), d_values.end(), h_values);
-
-}
-
-
-#include <cuda_runtime.h>
-
 struct vec3 {
     float x, y, z;
 
@@ -162,9 +145,6 @@ int PointCloudRendererBackend::transform_and_sort_cuda(
                  (vec3*)positions_ptr,
                  depths_ptr, indices_ptr, N);
 
-    // Filter out the "non process"
-    //auto end = thrust::remove(indices_t, indices_t+N, -1);
-    //int splatToSort = end - indices_t;
 
     auto zipped_begin = thrust::make_zip_iterator(thrust::make_tuple(depths_t, indices_t));
     auto zipped_end = zipped_begin + N;
@@ -180,20 +160,9 @@ int PointCloudRendererBackend::transform_and_sort_cuda(
 
     if(splatToSort >= 2)
     {
-
         // Tri : keys → triées, values → réarrangées dans le même ordre
         thrust::sort_by_key(depths_t, depths_t+splatToSort, indices_t);
     }
-//    std::vector<float> depth_tmp;
-//    depth_tmp.resize(splatToSort,-1.0);
-//    thrust::copy(depths_t, depths_t+splatToSort, depth_tmp.data());
-//    std::stringstream tmp;
-//    tmp << "DEPTHS: ";
-//    for(unsigned int i=0;i<10;i++)
-//    {
-//        tmp << depth_tmp[i] << " ";
-//    }
-//    std::cout << tmp.str() << std::endl;
 
     positions->unmap();
     depths->unmap();
@@ -305,35 +274,6 @@ void PointCloudRendererBackend::transform_and_sort_cpu(const Eigen::Matrix4f& P,
         Eigen::Vector3f center = (positions.row(index).transpose());
         depths[index] = proj_row.dot(center);
     }
-
-
-//    for(size_t i=0;i<indices.size(); ++i)
-//    {
-//        auto idx = i;
-//        Eigen::Vector3f center = (positions.row(idx).transpose());
-//        indices[idx] = idx;
-//        depths[idx] = proj_row.dot(center);
-//    }
-
-    //    tbb::parallel_for(
-    //        tbb::blocked_range<size_t>(0, indices.size(), 10000),
-    //        [&proj_row, &depths, &positions, &indices](const tbb::blocked_range<size_t>& r)
-    //        {
-    //            for (size_t i = r.begin(); i != r.end(); ++i)
-    //            {
-    //                Eigen::Vector3f center = (positions.row(i).transpose());
-    //                indices[i] = i;
-    //                depths[i] = proj_row.dot(center);
-    //            }
-    //        }
-    //    );
-
-    /*tbb::parallel_for_each(indices, [&proj_row, &depths, &positions](int idx){
-        Eigen::Vector3f center = (positions.row(idx).transpose());
-        depths[idx] = proj_row.dot(center);
-    });*/
-
-    //sort_float_int(depths.data(), indices.data(), depths.size());
 
     tbb::parallel_sort(indices.begin(), indices.end(),
                        [&](int i, int j) {

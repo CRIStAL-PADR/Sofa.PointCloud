@@ -8,9 +8,18 @@
 
     <EulerImplicitSolver/>
     <SparseLDLSolver/> 
-    
-    <MechanicalObject name="state" template="Rigid3" showObject="true"/> 
-    <UniformMass totalMass="3"/> 	
-    <PointCloudContainer name="container1" filename="splats/spot.ply"/> 
-    <PointCloudVisualModel name="visual" geometry="@container1" frames="@state.position"/> 
+
+    <Node>
+        <MechanicalObject name="state" template="Rigid3" showObject="true"/> 
+        <UniformMass totalMass="3"/> 	    
+        <PointCloudContainer name="container1" filename="splats/spot.ply"/> 
+        <PointCloudVisualModel name="visual" geometry="@container1" frames="@state.position"/> 
+    </Node>
+
+    <Node>
+        <MechanicalObject name="state2" template="Rigid3" showObject="true" position="2 0 0 0 0 0 1"/> 
+        <UniformMass totalMass="3"/>
+        <PointCloudContainer name="container2" filename="splats/spot.ply"/> 
+        <PointCloudVisualModel name="visual2" geometry="@container2" frames="@state2.position"/> 
+    </Node>
 </Node>

@@ -47,7 +47,6 @@ public:
 
     template<class T> static BaseGLBuffer* createBuffer(GLuint ssboID);
 
-    static void sort_float_int(float* keys, int* values, int N);
     static int transform_and_sort_cuda(
             const std::array<Plane,6>& clipPlanes,
             const Eigen::Matrix4f&, BaseGLBuffer* positions,
