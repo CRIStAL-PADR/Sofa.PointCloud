@@ -84,6 +84,20 @@ PointCloudContainer::~PointCloudContainer()
 {
 }
 
+
+void loader(std::atomic<bool>& running, const std::string& name) {
+    std::vector<std::string> spinner = {"⠁","⠂","⠄","⡀","⢀","⠠","⠐","⠈"};
+    int i = 0;
+
+    std::cout << "\033[?25l"; // hide
+    while (running) {
+        std::cout << "\rLoading "<< name <<": " << spinner[i % spinner.size()] << std::flush;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        ++i;
+    }
+    std::cout << "\033[?25h"; // show
+}
+
 void PointCloudContainer::init()
 {
     Inherit1::init();
@@ -92,10 +106,21 @@ void PointCloudContainer::init()
         return;
     }
 
+    std::atomic<bool> running(true);
+    std::thread t(loader, std::ref(running), d_filename.getValue());
+
+
     if( !load(d_filename.getValue()) ){
         d_componentState = core::objectmodel::ComponentState::Invalid;
+        running = false;
+
+        t.join();
         return;
     }
+
+    running = false;
+    t.join();
+
 
     d_componentState = core::objectmodel::ComponentState::Valid;
 }
@@ -114,6 +139,7 @@ void PointCloudContainer::updateBBox()
     }
     f_bbox.setValue(box);
 }
+
 
 bool PointCloudContainer::load(const std::string& filename, int max_sh_degree)
 {
@@ -165,7 +191,6 @@ bool PointCloudContainer::load(const std::string& filename, int max_sh_degree)
     file.read(ss);
 
     int N = x->count;
-
     auto load_vec = [](std::shared_ptr<PlyData>& pd, int N) -> Eigen::VectorXf {
         return Eigen::Map<Eigen::VectorXf>(reinterpret_cast<float*>(pd->buffer.get()), N);
     };

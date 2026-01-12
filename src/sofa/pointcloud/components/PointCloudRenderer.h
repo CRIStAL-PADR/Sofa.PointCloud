@@ -62,8 +62,6 @@ public:
     void doDrawVisual(const sofa::core::visual::VisualParams* vparams) final;
     void doUpdateVisual(const sofa::core::visual::VisualParams* vparams) final;
 
-    void draw(const sofa::core::visual::VisualParams* vparams) final;
-
 private:
     GLuint              _vao;
     GLuint              _vbo;
@@ -100,10 +98,12 @@ private:
     void transform(float uniformScale,
                    const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
                    const std::vector<defaulttype::Rigid3Types::Coord>& frames,
+                   const std::vector<defaulttype::Rigid3Types::Coord>& frames2,
                    const std::vector<std::vector<int>>& frameIndices,
-                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> &positions,
+                   const Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& srcPositions,
+                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& dstPositions,
                    Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor> &orientations,
-                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> &scales);
+                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> &scales, int offset);
 
     void sort(const Eigen::Matrix4f& P,
               const Eigen::MatrixXf& positions,

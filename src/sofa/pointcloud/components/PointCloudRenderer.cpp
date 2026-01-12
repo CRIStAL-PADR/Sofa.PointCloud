@@ -38,7 +38,7 @@ template<>
 void registerToFactory<sofa::pointcloud::components::PointCloudRenderer>(sofa::core::ObjectFactory* factory)
 {
     factory->registerObjects(core::ObjectRegistrationData("A point cloud renderer.")
-                             .add< sofa::pointcloud::components::PointCloudRenderer >());
+                                 .add< sofa::pointcloud::components::PointCloudRenderer >());
 }
 
 }
@@ -48,9 +48,9 @@ namespace sofa::pointcloud::components
 
 PointCloudRenderer::PointCloudRenderer() :
     l_targetNode(initLink("targetNode", "Link to the node to start rendering from"))
-  , l_camera(initLink("camera", "link to the camera used to render"))
-  , d_renderMode(initData(&d_renderMode, "color_sh_0", "renderMode", "Visualization method, select the spherical harmonics, gaussian or depth values"))
-  , d_withCuda(initData(&d_withCuda, true, "withCuda", "Use the CUDA based rendering of point cloud for high performance, default=true"))
+    , l_camera(initLink("camera", "link to the camera used to render"))
+    , d_renderMode(initData(&d_renderMode, "color_sh_0", "renderMode", "Visualization method, select the spherical harmonics, gaussian or depth values"))
+    , d_withCuda(initData(&d_withCuda, true, "withCuda", "Use the CUDA based rendering of point cloud for high performance, default=true"))
 {
     helper::OptionsGroup methodOptions{"COLOR_SH_0",
                                        "COLOR_SH_1",
@@ -204,29 +204,35 @@ std::vector<int> range(int maxSize)
 
 
 void PointCloudRenderer::transform(float scale,
+                                   const std::vector<defaulttype::Rigid3Types::Coord>& globalToLocalFrames,
                                    const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
-                                   const std::vector<defaulttype::Rigid3Types::Coord>& frames,
+                                   const std::vector<defaulttype::Rigid3Types::Coord>& currentFrames,
                                    const std::vector<std::vector<int>>& frameIndices,
-                                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& positions,
+                                   const Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& srcPositions,
+                                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& dstPositions,
                                    Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor>& orientations,
-                                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& scales)
+                                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& scales, int offset)
 {
     for(size_t frameIndex=0;frameIndex<frameIndices.size();++frameIndex)
     {
-        auto frameCenter = frames[frameIndex].getCenter(); // - initFrames[frameIndex].getCenter();
-        auto frameOrientation = frames[frameIndex].getOrientation();// - initFrames[frameIndex].getOrientation();
+        auto frameCenter = currentFrames[frameIndex].getCenter() - initFrames[frameIndex].getCenter() + globalToLocalFrames[frameIndex].getCenter();
+        auto frameOrientation = currentFrames[frameIndex].getOrientation();// - initFrames[frameIndex].getOrientation();
 
         auto T = Eigen::Translation<float,3>(frameCenter.x(), frameCenter.y(), frameCenter.z());
         auto R = Eigen::Quaternion<float>(frameOrientation[3], frameOrientation[0], frameOrientation[1], frameOrientation[2]);
         auto S = Eigen::UniformScaling<float>(scale);
 
-        auto transform = T*R;
+        // std::cout << " BEGIN " << frames[frameIndex].getCenter() << std::endl;
+        // std::cout << " END " << initFrames[frameIndex].getCenter()
+        //           << std::endl;
+
+        auto transform = T;
         for(size_t i=0;i<frameIndices[frameIndex].size(); ++i)
         {
             auto vtxIndex = frameIndices[frameIndex][i];
 
-            Eigen::Vector3f worldPosition = positions.row(vtxIndex).transpose();
-            positions.row(vtxIndex) = transform * worldPosition;
+            Eigen::Vector3f worldPosition = srcPositions.row(vtxIndex).transpose();
+            dstPositions.row(vtxIndex+offset) = transform * worldPosition;
 
             auto tmp = orientations.row(vtxIndex);
             Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
@@ -313,18 +319,6 @@ void generatePlaneMesh(const Plane& plane, std::vector<sofa::type::Vec3>& outVer
     outVertices.push_back(pt + sofa::type::Vec3(Eigen::Vector3f(size*(-u+v)).data()));
 }
 
-void PointCloudRenderer::draw(const sofa::core::visual::VisualParams* vparams)
-{
-    return;
-    for(auto plane : clipPlanes)
-    {
-        std::vector<sofa::type::Vec3> points;
-        generatePlaneMesh(plane, points);
-        vparams->drawTool()->drawQuads(points, type::RGBAColor::red());
-    }
-}
-
-
 void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
 {
     SCOPED_TIMER("PointCloud::doDrawVisual");
@@ -359,7 +353,9 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             }
 
             auto scale = visual->d_uniformScale.getValue();
-            auto initFrames = visual->initFrames;
+            auto& referenceFrames = visual->referenceFrames;
+            auto& localToGlobalFrames = visual->localToGlobalFrames;
+
             auto frames = helper::getReadAccessor(visual->d_frames);
             auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
 
@@ -378,15 +374,19 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
                 std::vector<std::vector<int>> frameMap{frames.size()};
                 for(size_t i=0;i<frameIndices.size();++i)
                 {
-                    frameMap[frameIndices[i]].push_back(offset+i);
+                    frameMap[frameIndices[i]].push_back(i);
                 }
 
+                //visual->initTransform();
                 // Now we need to apply the transformation
                 this->transform(scale,
-                                initFrames,
-                                frames, frameMap, renderingData.xyz, renderingData.rot, renderingData.scale);
-                msg_warning() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size();
-                msg_warning() << "         data set offset & size " << beginIndex << ", " << size;
+                                localToGlobalFrames, referenceFrames,
+                                frames, frameMap,
+                                visual->l_geometry->data->xyz,
+                                renderingData.xyz, renderingData.rot, renderingData.scale, offset);
+
+                msg_info() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size() << msgendl
+                           << "         data set offset & size " << beginIndex << ", " << size;
                 updatesBufferParts.push_back({offset,size});
                 continue;
             }
@@ -399,19 +399,21 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             std::vector<std::vector<int>> frameMap{frames.size()};
             for(size_t i=0;i<frameIndices.size();++i)
             {
-                frameMap[frameIndices[i]].push_back(offset+i);
+                frameMap[frameIndices[i]].push_back(i);
             }
 
             {
                 SCOPED_TIMER("PointCloud::doDrawVisual::sceneTransform");
                 // Now we need to apply the transformation
                 this->transform(scale,
-                                initFrames,
-                                frames, frameMap, renderingData.xyz, renderingData.rot, renderingData.scale);
-
+                                localToGlobalFrames,
+                                referenceFrames, frames,
+                                frameMap,
+                                visual->l_geometry->data->xyz, renderingData.xyz,
+                                renderingData.rot, renderingData.scale, offset);
             }
-            msg_warning() << "Updating a new data set " << visual->getPathName() << " with frames " << frames.size();
-            msg_warning() << "         data set offset & size " << offset << ", " << size;
+            msg_info() << "Updating point clouds from " << visual->getPathName() << " with frames " << frames.size() << msgendl
+                       << "         data set offset & size " << offset << ", " << size;
             updatesBufferParts.push_back({offset,size});
         }
     }
@@ -450,7 +452,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         float glTransform[16];
         type.writeOpenGlMatrix ( glTransform );
         Eigen::Matrix4f transform {glTransform };
-
 
         shader.TurnOn();
         int max_sh_dim = 48;
@@ -501,6 +502,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
 
     if(updatesBufferParts.size())
     {
+        std::cout << "UPDATE POSITIONS BUFFER " << std::endl;
         SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate");
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::POSITION]);
@@ -513,6 +515,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     }
 
     if(depths.size()!=indices.size()){
+        std::cout << "UPDATE INDICES " << std::endl;
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
@@ -530,22 +533,22 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         if(d_withCuda.getValue())
         {
             splatsToDraw = PointCloudRendererBackend::transform_and_sort_cuda(
-                        clipPlanes,
-                        viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
+                clipPlanes,
+                viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
         }else
         {
             std::vector<int> selectedIndices;
             {
 
-            SCOPED_TIMER("PointCloud::doDrawVisual::planeClipping");
-            // Plane clipping
-            for(auto indice : indices )
-            {
-                if(isSphereInsideFrustum(clipPlanes, renderingData.xyz.row(indice), 0.05))
+                SCOPED_TIMER("PointCloud::doDrawVisual::planeClipping");
+                // Plane clipping
+                for(auto indice : indices )
                 {
-                    selectedIndices.push_back(indice);
+                    if(isSphereInsideFrustum(clipPlanes, renderingData.xyz.row(indice), 0.05))
+                    {
+                        selectedIndices.push_back(indice);
+                    }
                 }
-            }
             }
             PointCloudRendererBackend::transform_and_sort_cpu(viewmat, renderingData.xyz,
                                                               depths, selectedIndices);
@@ -558,7 +561,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     }
 
     {
-        std::cout << "Rendering "<< splatsToDraw << "/" << renderingData.size() << " splats " << std::endl;
         SCOPED_TIMER("PointCloud::doDrawVisual::splatRendering");
         glBindBuffer(GL_ARRAY_BUFFER, _vbo);
         glBindVertexArray(_vao);
@@ -569,6 +571,8 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindVertexArray(0);
     }
+    msg_info() << "Rendering "<< splatsToDraw << "/" << renderingData.size() << " splats.";
+
     shader.TurnOff();
 
     glEnable(GL_CULL_FACE);

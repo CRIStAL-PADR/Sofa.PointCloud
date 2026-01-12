@@ -61,7 +61,8 @@ public:
 
 public:
     void initTransform();
-    type::vector<defaulttype::Rigid3Types::Coord> initFrames;
+    type::vector<defaulttype::Rigid3Types::Coord> referenceFrames;
+    type::vector<defaulttype::Rigid3Types::Coord> localToGlobalFrames;
 
 };
 }

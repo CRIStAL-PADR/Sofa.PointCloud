@@ -78,20 +78,22 @@ void PointCloudVisualModel::init()
     }
 
     // Track the geometry component state
-    addUpdateCallback("updateRestState", {&d_doInit}, [this](const sofa::core::DataTracker&)
+    addUpdateCallback("updateFrameState", {&d_doInit}, [this](const sofa::core::DataTracker&)
     {
         std::cout << "INIT TRANSFORM =======================================" << std::endl;
         if(d_doInit.getValue()){
             d_doInit.setValue(false);
             std::cout << "INIT TRANSFORM ======================================= DONE " << std::endl;
             initTransform();
+
+
         }
         return sofa::core::objectmodel::ComponentState::Valid;
     }, {&d_frameIndices, &d_frames});
 
 
     // Track the geometry component state
-    addUpdateCallback("update", {&l_geometry->d_componentState}, [this](const sofa::core::DataTracker&){
+    addUpdateCallback("update", {&l_geometry->d_componentState, &d_frames}, [this](const sofa::core::DataTracker&){
         if(!l_geometry->isComponentStateValid())
         {
             msg_warning() << "The geometry associated with this visual model is in an invalid state";
@@ -100,12 +102,16 @@ void PointCloudVisualModel::init()
 
         if(d_frameIndices.getValue().size()!=l_geometry->data->size())
         {
+            std::cout << "UPDATE TRANSFORM =======================================" << std::endl;
+
             auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
             frames.resize(l_geometry->data->size(), 0);
         }
 
         return sofa::core::objectmodel::ComponentState::Valid;
     }, {&d_frameIndices});
+
+    initTransform();
 
     d_componentState = sofa::core::objectmodel::ComponentState::Valid;
 }
@@ -120,30 +126,39 @@ void PointCloudVisualModel::initTransform()
     float scale = d_uniformScale.getValue();
 
     std::cout << "APPLY DEFAULT TRANSFORM " << std::endl;
-    for(size_t vtxIndex=0;vtxIndex<frameIndices.size(); ++vtxIndex)
+
+    referenceFrames.clear();
+    localToGlobalFrames.clear();
+    for(auto& frame : d_frames.getValue())
     {
-        int frameIndex = frameIndices[vtxIndex];
-        auto frameCenter = -frames[frameIndex].getCenter();
-        auto frameOrientation = (frames[frameIndex].getOrientation()).inverse();
+        localToGlobalFrames.push_back(frame);
+        referenceFrames.push_back(frame);
+    };
 
-        auto T = Eigen::Translation<float,3>(frameCenter.x(), frameCenter.y(), frameCenter.z());
-        auto R = Eigen::Quaternion<float>(frameOrientation[3], frameOrientation[0], frameOrientation[1], frameOrientation[2]);
-        auto S = Eigen::UniformScaling<float>(scale);
-        auto transform = T*R;
+    // for(size_t vtxIndex=0;vtxIndex<frameIndices.size(); ++vtxIndex)
+    // {
+    //     int frameIndex = frameIndices[vtxIndex];
+    //     auto frameCenter = -frames[frameIndex].getCenter();
+    //     auto frameOrientation = (frames[frameIndex].getOrientation()).inverse();
 
-        Eigen::Vector3f worldPosition = positions.row(vtxIndex).transpose();
-        positions.row(vtxIndex) = transform * worldPosition;
+    //     auto T = Eigen::Translation<float,3>(frameCenter.x(), frameCenter.y(), frameCenter.z());
+    //     auto R = Eigen::Quaternion<float>(frameOrientation[3], frameOrientation[0], frameOrientation[1], frameOrientation[2]);
+    //     auto S = Eigen::UniformScaling<float>(scale);
+    //     auto transform = T*R;
 
-        auto tmp = orientations.row(vtxIndex);
-        Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
+    //     Eigen::Vector3f worldPosition = positions.row(vtxIndex).transpose();
+    //     positions.row(vtxIndex) = transform * worldPosition;
 
-        orientations.row(vtxIndex)(0) = (worldOrientation).w();
-        orientations.row(vtxIndex)(1) = (worldOrientation).x();
-        orientations.row(vtxIndex)(2) = (worldOrientation).y();
-        orientations.row(vtxIndex)(3) = (worldOrientation).z();
+    //     auto tmp = orientations.row(vtxIndex);
+    //     Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
 
-        //scales.row(vtxIndex) = scales.row(vtxIndex)*scale;
-    }
+    //     orientations.row(vtxIndex)(0) = (worldOrientation).w();
+    //     orientations.row(vtxIndex)(1) = (worldOrientation).x();
+    //     orientations.row(vtxIndex)(2) = (worldOrientation).y();
+    //     orientations.row(vtxIndex)(3) = (worldOrientation).z();
+
+    //     //scales.row(vtxIndex) = scales.row(vtxIndex)*scale;
+    // }
 }
 
 void PointCloudVisualModel::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
