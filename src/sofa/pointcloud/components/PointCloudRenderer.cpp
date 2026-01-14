@@ -109,16 +109,10 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     shader.SetGeometryShaderFileName(geom);
     shader.InitShaders();
 
-    // Q quad to render a ray-marcher
-    //std::vector<float> _vertices = {0.0};
-
     glGenVertexArrays(1, &_vao);
     glGenBuffers(1, &_vbo);
     glBindVertexArray(_vao);
     glBindBuffer(GL_ARRAY_BUFFER, _vbo);
-
-    //glBufferData(GL_ARRAY_BUFFER, sizeof(float), _vertices.data(), GL_STATIC_DRAW);
-    //glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
     glGenBuffers(7, _ssbo_splat);
     for(auto i = 0;i<6;i++)
@@ -210,13 +204,14 @@ void PointCloudRenderer::transform(float scale,
                                    const std::vector<std::vector<int>>& frameIndices,
                                    const Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& srcPositions,
                                    Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& dstPositions,
-                                   Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor>& orientations,
+                                   const Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor>& srcOrientations,
+                                   Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor>& dstOrientations,
                                    Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& scales, int offset)
 {
     for(size_t frameIndex=0;frameIndex<frameIndices.size();++frameIndex)
     {
         auto frameCenter = currentFrames[frameIndex].getCenter() - initFrames[frameIndex].getCenter() + globalToLocalFrames[frameIndex].getCenter();
-        auto frameOrientation = currentFrames[frameIndex].getOrientation();// - initFrames[frameIndex].getOrientation();
+        auto frameOrientation = currentFrames[frameIndex].getOrientation() + initFrames[frameIndex].getOrientation().inverse() + globalToLocalFrames[frameIndex].getOrientation();
 
         auto T = Eigen::Translation<float,3>(frameCenter.x(), frameCenter.y(), frameCenter.z());
         auto R = Eigen::Quaternion<float>(frameOrientation[3], frameOrientation[0], frameOrientation[1], frameOrientation[2]);
@@ -226,7 +221,7 @@ void PointCloudRenderer::transform(float scale,
         // std::cout << " END " << initFrames[frameIndex].getCenter()
         //           << std::endl;
 
-        auto transform = T;
+        auto transform = T * R;
         for(size_t i=0;i<frameIndices[frameIndex].size(); ++i)
         {
             auto vtxIndex = frameIndices[frameIndex][i];
@@ -234,13 +229,13 @@ void PointCloudRenderer::transform(float scale,
             Eigen::Vector3f worldPosition = srcPositions.row(vtxIndex).transpose();
             dstPositions.row(vtxIndex+offset) = transform * worldPosition;
 
-            auto tmp = orientations.row(vtxIndex);
+            auto tmp = srcOrientations.row(vtxIndex);
             Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
 
-            orientations.row(vtxIndex)(0) = (worldOrientation).w();
-            orientations.row(vtxIndex)(1) = (worldOrientation).x();
-            orientations.row(vtxIndex)(2) = (worldOrientation).y();
-            orientations.row(vtxIndex)(3) = (worldOrientation).z();
+            dstOrientations.row(vtxIndex+offset)(0) = (worldOrientation).w();
+            dstOrientations.row(vtxIndex+offset)(1) = (worldOrientation).x();
+            dstOrientations.row(vtxIndex+offset)(2) = (worldOrientation).y();
+            dstOrientations.row(vtxIndex+offset)(3) = (worldOrientation).z();
 
             scales.row(vtxIndex) = scales.row(vtxIndex)*scale;
         }
@@ -382,8 +377,9 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
                 this->transform(scale,
                                 localToGlobalFrames, referenceFrames,
                                 frames, frameMap,
-                                visual->l_geometry->data->xyz,
-                                renderingData.xyz, renderingData.rot, renderingData.scale, offset);
+                                visual->l_geometry->data->xyz, renderingData.xyz,
+                                visual->l_geometry->data->rot, renderingData.rot,
+                                renderingData.scale, offset);
 
                 msg_info() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size() << msgendl
                            << "         data set offset & size " << beginIndex << ", " << size;
@@ -410,7 +406,8 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
                                 referenceFrames, frames,
                                 frameMap,
                                 visual->l_geometry->data->xyz, renderingData.xyz,
-                                renderingData.rot, renderingData.scale, offset);
+                                visual->l_geometry->data->rot, renderingData.rot,
+                                renderingData.scale, offset);
             }
             msg_info() << "Updating point clouds from " << visual->getPathName() << " with frames " << frames.size() << msgendl
                        << "         data set offset & size " << offset << ", " << size;
@@ -472,7 +469,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     static bool firstTime = true;
     if(firstTime)
     {
-        std::cout << "INTIIALIZE BUFFER " << std::endl;
         firstTime = false;
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::SCALE]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.scale.rows() * sizeof(float) * 3, renderingData.scale.data(), GL_DYNAMIC_DRAW);
@@ -502,9 +498,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
 
     if(updatesBufferParts.size())
     {
-        std::cout << "UPDATE POSITIONS BUFFER " << std::endl;
-        SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate");
-
+        SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate POSITION");
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::POSITION]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.xyz.rows() * sizeof(float) * 3, renderingData.xyz.data(), GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_splat[SplatProperty::POSITION]);
@@ -515,7 +509,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     }
 
     if(depths.size()!=indices.size()){
-        std::cout << "UPDATE INDICES " << std::endl;
+        SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate INDEX");
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);

@@ -102,7 +102,8 @@ private:
                    const std::vector<std::vector<int>>& frameIndices,
                    const Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& srcPositions,
                    Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& dstPositions,
-                   Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor> &orientations,
+                   const Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor> &srcOrientations,
+                   Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor> &dstOrientations,
                    Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> &scales, int offset);
 
     void sort(const Eigen::Matrix4f& P,

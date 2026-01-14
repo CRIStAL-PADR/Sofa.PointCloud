@@ -73,45 +73,32 @@ void PointCloudVisualModel::init()
 
     if(d_frameIndices.getValue().size()==0 && l_geometry->data)
     {
+        std::cout << "INIT INDICES" << std::endl;
         auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
         frames.resize(l_geometry->data->size(), 0);
     }
 
-    // Track the geometry component state
-    addUpdateCallback("updateFrameState", {&d_doInit}, [this](const sofa::core::DataTracker&)
-    {
-        std::cout << "INIT TRANSFORM =======================================" << std::endl;
-        if(d_doInit.getValue()){
-            d_doInit.setValue(false);
-            std::cout << "INIT TRANSFORM ======================================= DONE " << std::endl;
-            initTransform();
-
-
-        }
-        return sofa::core::objectmodel::ComponentState::Valid;
-    }, {&d_frameIndices, &d_frames});
-
+    initTransform();
 
     // Track the geometry component state
-    addUpdateCallback("update", {&l_geometry->d_componentState, &d_frames}, [this](const sofa::core::DataTracker&){
+    addUpdateCallback("update", {&l_geometry->d_componentState}, [this](const sofa::core::DataTracker&){
         if(!l_geometry->isComponentStateValid())
         {
             msg_warning() << "The geometry associated with this visual model is in an invalid state";
             return sofa::core::objectmodel::ComponentState::Invalid;
         }
 
-        if(d_frameIndices.getValue().size()!=l_geometry->data->size())
+        auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
+        if(frames.size()!=l_geometry->data->size())
         {
-            std::cout << "UPDATE TRANSFORM =======================================" << std::endl;
-
-            auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
             frames.resize(l_geometry->data->size(), 0);
         }
 
+        initTransform();
         return sofa::core::objectmodel::ComponentState::Valid;
     }, {&d_frameIndices});
 
-    initTransform();
+
 
     d_componentState = sofa::core::objectmodel::ComponentState::Valid;
 }
@@ -125,8 +112,6 @@ void PointCloudVisualModel::initTransform()
     auto& orientations = l_geometry->data->rot;
     float scale = d_uniformScale.getValue();
 
-    std::cout << "APPLY DEFAULT TRANSFORM " << std::endl;
-
     referenceFrames.clear();
     localToGlobalFrames.clear();
     for(auto& frame : d_frames.getValue())
@@ -134,31 +119,6 @@ void PointCloudVisualModel::initTransform()
         localToGlobalFrames.push_back(frame);
         referenceFrames.push_back(frame);
     };
-
-    // for(size_t vtxIndex=0;vtxIndex<frameIndices.size(); ++vtxIndex)
-    // {
-    //     int frameIndex = frameIndices[vtxIndex];
-    //     auto frameCenter = -frames[frameIndex].getCenter();
-    //     auto frameOrientation = (frames[frameIndex].getOrientation()).inverse();
-
-    //     auto T = Eigen::Translation<float,3>(frameCenter.x(), frameCenter.y(), frameCenter.z());
-    //     auto R = Eigen::Quaternion<float>(frameOrientation[3], frameOrientation[0], frameOrientation[1], frameOrientation[2]);
-    //     auto S = Eigen::UniformScaling<float>(scale);
-    //     auto transform = T*R;
-
-    //     Eigen::Vector3f worldPosition = positions.row(vtxIndex).transpose();
-    //     positions.row(vtxIndex) = transform * worldPosition;
-
-    //     auto tmp = orientations.row(vtxIndex);
-    //     Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
-
-    //     orientations.row(vtxIndex)(0) = (worldOrientation).w();
-    //     orientations.row(vtxIndex)(1) = (worldOrientation).x();
-    //     orientations.row(vtxIndex)(2) = (worldOrientation).y();
-    //     orientations.row(vtxIndex)(3) = (worldOrientation).z();
-
-    //     //scales.row(vtxIndex) = scales.row(vtxIndex)*scale;
-    // }
 }
 
 void PointCloudVisualModel::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
