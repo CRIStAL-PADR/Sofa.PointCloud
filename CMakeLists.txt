@@ -23,13 +23,14 @@ set(HEADER_FILES
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.h
     ${SOFA_POINTCLOUD_SRC}/components/liteviz-dataloader.h
-    extlibs/liteviz-gs/liteviz/dataloader.h
-    extlibs/liteviz-gs/liteviz/renderer.h
-    extlibs/liteviz-gs/liteviz/shader.h
-    extlibs/liteviz-gs/liteviz/utils.h
-    extlibs/diff-gaussian-rasterization/cuda_rasterizer/rasterizer.h
-    extlibs/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.h
-    extlibs/diff-gaussian-rasterization/cuda_rasterizer/forward.h
+    # extlibs/liteviz-gs/liteviz/dataloader.h
+    # extlibs/liteviz-gs/liteviz/renderer.h
+    # extlibs/liteviz-gs/liteviz/shader.h
+    # extlibs/liteviz-gs/liteviz/utils.h
+    extlibs/tinyply/source/tinyply.h
+    # extlibs/diff-gaussian-rasterization/cuda_rasterizer/rasterizer.h
+    # extlibs/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.h
+    # extlibs/diff-gaussian-rasterization/cuda_rasterizer/forward.h
 )
 
 set(SOURCE_FILES
@@ -44,15 +45,34 @@ set(SOURCE_FILES
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererCUDA.cpp
 )
 
+# Tinyply and liteviz
+include_directories("extlibs/tinyply/source")
+
+# TBB
+set(TBB_TEST OFF CACHE BOOL "" FORCE)
+set(TBB_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
+set(TBB_ENABLE_IPO OFF CACHE BOOL "" FORCE)
+add_subdirectory("extlibs/tbb")
 add_library(${PROJECT_NAME} SHARED ${HEADER_FILES} ${SOURCE_FILES})
-target_link_libraries(${PROJECT_NAME} PUBLIC Sofa.Core Sofa.Component.Visual Sofa.GL SofaPython3::Plugin tbb)
+if(TARGET TBB::tbb)
+add_custom_command(
+    TARGET ${PROJECT_NAME}
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    $<TARGET_FILE:TBB::tbb>
+    $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    )
+    endif()
+    
+target_link_libraries(${PROJECT_NAME} PUBLIC Sofa.Core Sofa.Component.Visual Sofa.GL SofaPython3::Plugin TBB::tbb)
 set_target_properties(${PROJECT_NAME}  PROPERTIES CUDA_ARCHITECTURES "native")
 
 sofa_create_package_with_targets(
     PACKAGE_NAME ${PROJECT_NAME}
     PACKAGE_VERSION ${Sofa_VERSION}
     TARGETS ${PROJECT_NAME} AUTO_SET_TARGET_PROPERTIES
-    INCLUDE_SOURCE_DIR "src" "extlibs"
+    INCLUDE_SOURCE_DIR "src"
     INCLUDE_INSTALL_DIR "${PROJECT_NAME}"
     RELOCATABLE "plugins"
 )

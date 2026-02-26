@@ -4,3 +4,9 @@
 [submodule "extlibs/liteviz-gs"]
 	path = extlibs/liteviz-gs
 	url = https://github.com/panxkun/liteviz-gs
+[submodule "extlibs/tinyply"]
+	path = extlibs/tinyply
+	url = https://github.com/ddiakopoulos/tinyply
+[submodule "extlibs/tbb"]
+	path = extlibs/tbb
+	url = https://github.com/uxlfoundation/oneTBB
