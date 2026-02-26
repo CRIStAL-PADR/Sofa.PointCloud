@@ -6,7 +6,7 @@
 	url = https://github.com/panxkun/liteviz-gs
 [submodule "extlibs/tinyply"]
 	path = extlibs/tinyply
-	url = git@github.com:ddiakopoulos/tinyply.git
+	url = https://github.com/ddiakopoulos/tinyply
 [submodule "extlibs/tbb"]
 	path = extlibs/tbb
-	url = git@github.com:uxlfoundation/oneTBB.git
+	url = https://github.com/uxlfoundation/oneTBB
