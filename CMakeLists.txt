@@ -28,9 +28,9 @@ set(HEADER_FILES
     # extlibs/liteviz-gs/liteviz/shader.h
     # extlibs/liteviz-gs/liteviz/utils.h
     extlibs/tinyply/source/tinyply.h
-    # extlibs/diff-gaussian-rasterization/cuda_rasterizer/rasterizer.h
-    # extlibs/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.h
-    # extlibs/diff-gaussian-rasterization/cuda_rasterizer/forward.h
+    extlibs/diff-gaussian-rasterization/cuda_rasterizer/rasterizer.h
+    extlibs/diff-gaussian-rasterization/cuda_rasterizer/rasterizer_impl.h
+    extlibs/diff-gaussian-rasterization/cuda_rasterizer/forward.h
 )
 
 set(SOURCE_FILES
@@ -66,7 +66,7 @@ add_custom_command(
     endif()
     
 target_link_libraries(${PROJECT_NAME} PUBLIC Sofa.Core Sofa.Component.Visual Sofa.GL SofaPython3::Plugin TBB::tbb)
-set_target_properties(${PROJECT_NAME}  PROPERTIES CUDA_ARCHITECTURES "native")
+set_target_properties(${PROJECT_NAME}  PROPERTIES CUDA_ARCHITECTURES 89)
 
 sofa_create_package_with_targets(
     PACKAGE_NAME ${PROJECT_NAME}

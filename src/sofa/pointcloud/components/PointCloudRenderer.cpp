@@ -96,7 +96,7 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
 {
     if (!sofa::gl::GLSLShader::InitGLSL())
     {
-        msg_info() << "InitGLSL failed" ;
+        msg_warning() << "InitGLSL failed" ;
         return;
     }
 
@@ -197,7 +197,8 @@ void append(GaussianData& dest, const GaussianData& src)
 
 std::vector<int> range(int maxSize)
 {
-    std::vector<int> tmp {maxSize};
+    std::vector<int> tmp;
+    tmp.reserve(maxSize);
     for(auto i=0;i<maxSize;++i) tmp.emplace_back(i);
     return tmp;
 }
@@ -350,6 +351,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     {
         isFirstRun = false;
         clear(renderingData);
+        clear(referenceData);
         for(auto visual : visualModels)
         {
             visual->updateVisual(vparams);
@@ -361,26 +363,18 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             if(!visual->l_geometry->data){
                 continue;
             }
-            int offset = renderingData.xyz.rows();
-
-            //if(isFirstRun)
-            //{
-            //    visual->initTransform();
-            //}
-
-            //if(visual->d_isStaticModel.getValue())
-            //    hasStaticData=true;
+            int modelBeginIndex = renderingData.xyz.rows();
 
             // First build the reference geometry
-            int beginIndex = renderingData.size();
             int size = visual->l_geometry->data->xyz.rows()*(3+4+3+1+visual->l_geometry->data->sh_dim());
-            dataCache[visual] = std::make_tuple(beginIndex, size);
+            dataCache[visual] = std::make_tuple(modelBeginIndex, size);
 
-            append(renderingData.xyz, visual->l_geometry->data->xyz);
-            append(renderingData.sh, visual->l_geometry->data->sh);
-            append(renderingData.opacity, visual->l_geometry->data->opacity);
-            append(renderingData.scale, visual->l_geometry->data->scale);
-            append(renderingData.rot, visual->l_geometry->data->rot);
+            // only copy position, rotation and scale values
+            append(referenceData.xyz, visual->l_geometry->data->xyz);
+            append(referenceData.rot, visual->l_geometry->data->rot);
+            append(referenceData.scale, visual->l_geometry->data->scale);
+
+            append(renderingData, *visual->l_geometry->data);
 
             auto scale = visual->d_uniformScale.getValue();
             auto initFrames = visual->initFrames;
@@ -390,17 +384,15 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             std::vector<std::vector<int>> frameMap{frames.size()};
             for(size_t i=0;i<frameIndices.size();++i)
             {
-                frameMap[frameIndices[i]].push_back(offset+i);
+                frameMap[frameIndices[i]].push_back(modelBeginIndex+i);
             }
-
-            //visual->doUpdateVisual(sofa::core::visual::VisualParams::defaultInstance());
 
             // Now we need to apply the transformation
             this->transform(scale,
                             initFrames,
                             frames, frameMap, renderingData.xyz, renderingData.rot, renderingData.scale);
-            msg_warning() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size();
-            msg_warning() << "         data set offset & size " << beginIndex << ", " << size;
+            msg_info() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size();
+            msg_info() << "         data set modelBeginIndex & modelSize " << modelBeginIndex << ", " << size;
         }
     }else{
         SCOPED_TIMER("PointCloud::doDrawVisual::sceneParsing");
@@ -417,7 +409,8 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             if(visual->d_isStaticModel.getValue())
                 continue;
 
-            auto [offset, size] = dataCache[visual];
+            auto [modelBeginIndex, modelSize] = dataCache[visual];
+            int modelSplatsCount = visual->l_geometry->data->xyz.rows();
 
             auto scale = visual->d_uniformScale.getValue();
             auto initFrames = visual->initFrames;
@@ -427,8 +420,13 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             std::vector<std::vector<int>> frameMap{frames.size()};
             for(size_t i=0;i<frameIndices.size();++i)
             {
-                frameMap[frameIndices[i]].push_back(offset+i);
+                frameMap[frameIndices[i]].push_back(modelBeginIndex+i);
             }
+
+            // Reset to untransformed reference before applying new pose
+            renderingData.xyz.block(modelBeginIndex, 0, modelSplatsCount, 3) = referenceData.xyz.block(modelBeginIndex, 0, modelSplatsCount, 3);
+            renderingData.rot.block(modelBeginIndex, 0, modelSplatsCount, 4) = referenceData.rot.block(modelBeginIndex, 0, modelSplatsCount, 4);
+            renderingData.scale.block(modelBeginIndex, 0, modelSplatsCount, 3) = referenceData.scale.block(modelBeginIndex, 0, modelSplatsCount, 3);
 
             {
                 SCOPED_TIMER("PointCloud::doDrawVisual::sceneTransform");
@@ -438,11 +436,12 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
                                 frames, frameMap, renderingData.xyz, renderingData.rot, renderingData.scale);
 
             }
-            msg_warning() << "Updating a new data set " << visual->getPathName() << " with frames " << frames.size();
-            msg_warning() << "         data set offset & size " << offset << ", " << size;
-            updatesBufferParts.push_back({offset,size});
+            msg_info() << "Updating a new data set " << visual->getPathName() << " with frames " << frames.size();
+            msg_info() << "         data set modelBeginIndex & modelSize " << modelBeginIndex << ", " << modelSize;
+            updatesBufferParts.push_back({modelBeginIndex,modelSize});
         }
     }
+
     msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
 
     isFirstRun=false;
@@ -455,7 +454,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     // Here we have geometries to draw and a camera that look at it.
     // We first send the camera parameters to the gl rendering backend, then the geometries.
     auto c = l_camera->getPosition();
-    Eigen::Vector3f cam_pos {c[0],c[1],c[2]};
+    Eigen::Vector3f cam_pos {float(c[0]),float(c[1]), float(c[2])};
 
     vparams->getModelViewMatrix(dviewmat.data());
     vparams->getProjectionMatrix(dprojmat.data());
@@ -503,7 +502,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     static bool firstTime = true;
     if(firstTime)
     {
-        std::cout << "INTIIALIZE BUFFER " << std::endl;
         firstTime = false;
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::SCALE]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.scale.rows() * sizeof(float) * 3, renderingData.scale.data(), GL_DYNAMIC_DRAW);
@@ -531,7 +529,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssbo_splat[SplatProperty::ROTATION]);
     }
 
-    std::cout << "UPDATE BUFFER PARTS " << updatesBufferParts.size() << std::endl;
     if(updatesBufferParts.size())
     {
         SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate");
@@ -546,7 +543,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     }
 
     if(depths.size()!=indices.size()){
-        std::cout << "RESIZE DEPTH BUFFER" << std::endl;
         depths.resize(indices.size());
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::DEPTHS]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, depths.size() * sizeof(float), depths.data(), GL_DYNAMIC_DRAW);
@@ -564,6 +560,8 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
 
         if(d_withCuda.getValue())
         {
+            selectedIndices.resize(renderingData.size());
+            std::iota(selectedIndices.begin(), selectedIndices.end(), 0);
             PointCloudRendererBackend::transform_and_sort_cuda(viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
         }else
         {

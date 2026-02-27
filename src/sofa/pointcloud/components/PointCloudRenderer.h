@@ -90,6 +90,7 @@ private:
     std::vector<float>  depths;
     gl::GLSLShader      shader;
     GaussianData        renderingData;
+    GaussianData referenceData; // untransformed source data
 
     BaseGLBuffer *interop_positions;
     BaseGLBuffer *interop_depths;

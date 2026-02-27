@@ -110,7 +110,7 @@ public:
 
     void reset(int N_)
     {
-        std::cout << "RESET CUDA BUFFER " << std::endl;
+        //std::cout << "RESET CUDA BUFFER " << std::endl;
         N = N_;
 
         short* d_depths_out;
