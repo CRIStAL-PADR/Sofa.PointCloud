@@ -14,6 +14,6 @@ def createScene(root):
     root.PointCloud.addChild("Renderer")
     root.PointCloud.addObject("PointCloudRenderer", 
                                         name="renderer", 
-                                        camera=root.camera.linkpath)
+                                        camera=root.camera.linkpath, withCuda=False)
     
 

@@ -210,18 +210,14 @@ void PointCloudRenderer::transform(float scale,
 {
     for(size_t frameIndex=0;frameIndex<frameIndices.size();++frameIndex)
     {
-        auto frameCenter = currentFrames[frameIndex].getCenter() - initFrames[frameIndex].getCenter() + globalToLocalFrames[frameIndex].getCenter();
-        auto frameOrientation = currentFrames[frameIndex].getOrientation() + initFrames[frameIndex].getOrientation().inverse() + globalToLocalFrames[frameIndex].getOrientation();
+        auto frameCenter = currentFrames[frameIndex].getCenter() - initFrames[frameIndex].getCenter(); // + globalToLocalFrames[frameIndex].getCenter();
+        auto frameOrientation = currentFrames[frameIndex].getOrientation() + initFrames[frameIndex].getOrientation().inverse(); // + globalToLocalFrames[frameIndex].getOrientation();
 
         auto T = Eigen::Translation<float,3>(frameCenter.x(), frameCenter.y(), frameCenter.z());
         auto R = Eigen::Quaternion<float>(frameOrientation[3], frameOrientation[0], frameOrientation[1], frameOrientation[2]);
         auto S = Eigen::UniformScaling<float>(scale);
 
-        // std::cout << " BEGIN " << frames[frameIndex].getCenter() << std::endl;
-        // std::cout << " END " << initFrames[frameIndex].getCenter()
-        //           << std::endl;
-
-        auto transform = T * R;
+        auto transform = T;
         for(size_t i=0;i<frameIndices[frameIndex].size(); ++i)
         {
             auto vtxIndex = frameIndices[frameIndex][i];
@@ -237,7 +233,7 @@ void PointCloudRenderer::transform(float scale,
             dstOrientations.row(vtxIndex+offset)(2) = (worldOrientation).y();
             dstOrientations.row(vtxIndex+offset)(3) = (worldOrientation).z();
 
-            scales.row(vtxIndex) = scales.row(vtxIndex)*scale;
+            //scales.row(vtxIndex) = scales.row(vtxIndex)*scale;
         }
     }
 }
@@ -372,7 +368,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
                     frameMap[frameIndices[i]].push_back(i);
                 }
 
-                //visual->initTransform();
                 // Now we need to apply the transformation
                 this->transform(scale,
                                 localToGlobalFrames, referenceFrames,

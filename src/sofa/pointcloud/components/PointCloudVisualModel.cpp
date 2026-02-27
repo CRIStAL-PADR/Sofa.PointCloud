@@ -47,6 +47,7 @@ PointCloudVisualModel::PointCloudVisualModel() :
       l_geometry(initLink("geometry", "link to the topology container"))
     , d_indices(initData(&d_indices, "indices", " the indices in the geometry to display"))
     , d_frames(initData(&d_frames, "frames", " set of frame controlling the geometry"))
+    , d_initFrames(initData(&d_initFrames, "initFrames", " initiale frames location/orientation, if empty, use frames as reference"))
     , d_frameIndices(initData(&d_frameIndices, "frameIndices", " the indice mapping each splats to a frame"))
     , d_uniformScale(initData(&d_uniformScale, 1.0f, "uniformScale", " scale factor to apply to whole shape"))
     , d_isStaticModel(initData(&d_isStaticModel, false, "isStatic", "true if the data is fully static" ))
@@ -62,7 +63,10 @@ PointCloudVisualModel::~PointCloudVisualModel()
 
 void PointCloudVisualModel::init()
 {
+    if( isComponentStateValid() )
+        return;
     Inherit1::init();
+
 
     if(!l_geometry)
     {
@@ -73,7 +77,6 @@ void PointCloudVisualModel::init()
 
     if(d_frameIndices.getValue().size()==0 && l_geometry->data)
     {
-        std::cout << "INIT INDICES" << std::endl;
         auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
         frames.resize(l_geometry->data->size(), 0);
     }
@@ -95,6 +98,7 @@ void PointCloudVisualModel::init()
         }
 
         initTransform();
+
         return sofa::core::objectmodel::ComponentState::Valid;
     }, {&d_frameIndices});
 
@@ -105,18 +109,30 @@ void PointCloudVisualModel::init()
 
 void PointCloudVisualModel::initTransform()
 {
-    auto frameIndices = helper::getReadAccessor(d_frameIndices);
-    auto frames = helper::getReadAccessor(d_frames);
+    std::cout << "INIT TRANSFORM" << std::endl;
+    if(d_initFrames.isSet())
+    {
+        std::cout << "INIT TRANSFORM => Initialize using frames, so future frames will be interpreted as delta compared to this reference" << std::endl;
+        d_initFrames.updateIfDirty();
+        d_initFrames.setParent(nullptr);
+    }
+    else{
+        auto initFrames = helper::getWriteOnlyAccessor(d_initFrames);
+        auto frames = helper::getReadAccessor(d_frames);
+        initFrames.clear();
+        for(auto& frame : frames)
+        {
+            initFrames.push_back(defaulttype::Rigid3Types::Coord{});
+        }
+    }
 
-    auto& positions = l_geometry->data->xyz;
-    auto& orientations = l_geometry->data->rot;
-    float scale = d_uniformScale.getValue();
+    auto initFrames = helper::getReadAccessor(d_initFrames);
 
     referenceFrames.clear();
     localToGlobalFrames.clear();
-    for(auto& frame : d_frames.getValue())
+    for(auto& frame : initFrames)
     {
-        localToGlobalFrames.push_back(frame);
+        localToGlobalFrames.push_back(frame-frame);
         referenceFrames.push_back(frame);
     };
 }

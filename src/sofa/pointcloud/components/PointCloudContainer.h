@@ -58,6 +58,7 @@ public:
     void updateBBox();
 
     bool load(const std::string& filename, int max_sh_degree = 3);
+    void loadNaive();
 
     size_t size();
 

@@ -57,11 +57,15 @@ PointCloudTransform::~PointCloudTransform()
 
 void PointCloudTransform::init()
 {
+
+    std::cout << "INIT " << std::endl;
     Inherit1::init();
     update();
     d_componentState = core::objectmodel::ComponentState::Valid;
 
     addUpdateCallback("update", {&d_frames, &d_scales}, [this](const sofa::core::DataTracker&){
+
+        std::cout << "CALLBACK " << std::endl;
         update();
         return sofa::core::objectmodel::ComponentState::Valid;
     }, {&l_output->d_componentState});
@@ -119,10 +123,15 @@ void PointCloudTransform::append(GaussianData& dest, const GaussianData& src)
 void PointCloudTransform::update()
 {
     if(l_input->isComponentStateInvalid())
+    {
         return;
+    }
 
     if(l_output->isComponentStateInvalid())
+    {
         return;
+    }
+
 
     auto source = l_input->data;
     auto destination = l_output->data;
