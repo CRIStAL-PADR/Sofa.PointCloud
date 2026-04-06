@@ -1,11 +1,8 @@
 #include <sofa/pointcloud/components/PointCloudRendererBackend.h>
 #include <cuda_runtime.h>
-#include <cub/cub.cuh>
 #include <thrust/device_vector.h>
 #include <thrust/sort.h>
 #include <thrust/remove.h>
-#include <cub/device/device_radix_sort.cuh>
-#include <cuda_fp16.h>
 #include <cuda_gl_interop.h>
 #include <tbb/tbb.h>
 

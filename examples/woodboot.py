@@ -94,9 +94,9 @@ def createScene(root):
     Object("RequiredPlugin",name="Sofa.PointCloud")
     Object("InteractiveCamera", name="camera")
 
-    root.addObject(EulerToQuaternion(name="euler_to_quaternion"))
-    root.addObject(RigidDofBuilder(name="rigid_dof_builder"))
-    root.rigid_dof_builder.orientation.setParent(root.euler_to_quaternion.quaternion) 
+    #root.addObject(EulerToQuaternion(name="euler_to_quaternion"))
+    #root.addObject(RigidDofBuilder(name="rigid_dof_builder"))
+    #root.rigid_dof_builder.orientation.setParent(root.euler_to_quaternion.quaternion) 
     
     with Node("Modelling") as modelling:
         with Beam("beam") as beam:

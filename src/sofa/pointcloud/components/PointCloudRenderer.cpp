@@ -217,7 +217,7 @@ void PointCloudRenderer::transform(float scale,
         auto R = Eigen::Quaternion<float>(frameOrientation[3], frameOrientation[0], frameOrientation[1], frameOrientation[2]);
         auto S = Eigen::UniformScaling<float>(scale);
 
-        auto transform = T;
+        auto transform = T * R;
         for(size_t i=0;i<frameIndices[frameIndex].size(); ++i)
         {
             auto vtxIndex = frameIndices[frameIndex][i];
@@ -344,7 +344,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             }
 
             auto scale = visual->d_uniformScale.getValue();
-            auto& referenceFrames = visual->referenceFrames;
+            auto& referenceFrames = visual->d_initFrames.getValue();
             auto& localToGlobalFrames = visual->localToGlobalFrames;
 
             auto frames = helper::getReadAccessor(visual->d_frames);

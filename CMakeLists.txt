@@ -8,7 +8,7 @@ find_package(Sofa.Component.Visual REQUIRED)
 find_package(Sofa.GL REQUIRED)
 find_package(SofaPython3 REQUIRED)
 
-set(CMAKE_CUDA_FLAGS "-D__CUDA_NO_MATH_FUNCTIONS__ -O3 -std=c++17 -Xcompiler=-fPIC -Wno-attributes -fsized-deallocation")
+set(CMAKE_CUDA_FLAGS "-D__CUDA_NO_MATH_FUNCTIONS__ -O3 -std=c++17 -Xcompiler=-fPIC -Wno-attributes -fsized-deallocation -v")
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
