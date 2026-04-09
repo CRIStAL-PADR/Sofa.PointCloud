@@ -210,10 +210,12 @@ void PointCloudRenderer::transform(float scale,
 {
     for(size_t frameIndex=0;frameIndex<frameIndices.size();++frameIndex)
     {
-        auto frameCenter = currentFrames[frameIndex].getCenter() - initFrames[frameIndex].getCenter(); // + globalToLocalFrames[frameIndex].getCenter();
-        auto frameOrientation = currentFrames[frameIndex].getOrientation() + initFrames[frameIndex].getOrientation().inverse(); // + globalToLocalFrames[frameIndex].getOrientation();
+        auto frameCenter = currentFrames[frameIndex].getCenter(); // + globalToLocalFrames[frameIndex].getCenter();
+        auto frameInitCenter = initFrames[frameIndex].getCenter(); // + globalToLocalFrames[frameIndex].getCenter();
+        auto frameOrientation = currentFrames[frameIndex].getOrientation(); // + globalToLocalFrames[frameIndex].getOrientation();
 
         auto T = Eigen::Translation<float,3>(frameCenter.x(), frameCenter.y(), frameCenter.z());
+        auto Tinv = Eigen::Translation<float,3>(-frameInitCenter.x(), -frameInitCenter.y(), -frameInitCenter.z());
         auto R = Eigen::Quaternion<float>(frameOrientation[3], frameOrientation[0], frameOrientation[1], frameOrientation[2]);
         auto S = Eigen::UniformScaling<float>(scale);
 
@@ -223,7 +225,7 @@ void PointCloudRenderer::transform(float scale,
             auto vtxIndex = frameIndices[frameIndex][i];
 
             Eigen::Vector3f worldPosition = srcPositions.row(vtxIndex).transpose();
-            dstPositions.row(vtxIndex+offset) = transform * worldPosition;
+            dstPositions.row(vtxIndex+offset) = transform * (Tinv * worldPosition);
 
             auto tmp = srcOrientations.row(vtxIndex);
             Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
