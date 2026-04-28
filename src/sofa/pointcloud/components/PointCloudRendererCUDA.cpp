@@ -89,13 +89,6 @@ std::function<char*(size_t N)> resizeFunctional(std::vector<float> t) {
 
 void PointCloudRendererCUDA::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
 {
-    //    static void markVisible(
-    //        int P,
-    //        float* means3D,
-    //        float* viewmatrix,
-    //        float* projmatrix,
-    //        bool* present);
-
     auto viewport = vparams->viewport();
 
     Eigen::Matrix4f projmat;
@@ -110,7 +103,7 @@ void PointCloudRendererCUDA::doDrawVisual(const sofa::core::visual::VisualParams
     // Here we have geometries to draw and a camera that look at it.
     // We first send the camera parameters to the gl rendering backend, then the geometries.
     auto c = l_camera->getPosition();
-    Eigen::Vector3f cam_pos {c[0],c[1],c[2]};
+    Eigen::Vector3f cam_pos {float(c[0]),float(c[1]),float(c[2])};
 
     float fov = l_camera->getFieldOfView();
     float tanHalfFov = tan((fov / 180.0 * M_PI) / 2.0f);

@@ -43,9 +43,19 @@ public:
     SingleLink<PointCloudTransform, PointCloudContainer, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_input;
     SingleLink<PointCloudTransform, PointCloudContainer, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_output;
 
+    void clear(GaussianData& data);
+    void append(Eigen::MatrixXf& dest, const Eigen::MatrixXf& src);
+    void append(Eigen::Matrix<float, Eigen::Dynamic, 1>& dest,
+                                     const Eigen::Matrix<float, Eigen::Dynamic, 1>& src);
+    template<unsigned int Size>
+    void append(Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& dest,
+                                     const Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& src);
+    void append(GaussianData& dest, const GaussianData& src);
+
 private:
-    Data<defaulttype::Rigid3Types::Coord> d_frame;
-    Data<type::Vec3> d_scale;
+    Data<type::vector<defaulttype::Rigid3Types::Coord>> d_frames;
+    Data<type::vector<unsigned int >> d_frameIndices;
+    Data<type::vector<SReal>> d_scales;
     void update();
 };
 

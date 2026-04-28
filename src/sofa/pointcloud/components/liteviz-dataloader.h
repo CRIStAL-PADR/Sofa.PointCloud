@@ -11,10 +11,10 @@ using namespace tinyply;
 
 struct GaussianData {
 
-    Eigen::MatrixXf xyz;        // N x 3
-    Eigen::MatrixXf rot;        // N x 4 (quaternion)
-    Eigen::MatrixXf scale;      // N x 3
-    Eigen::MatrixXf opacity;    // N x 1
+    Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> xyz;        // N x 3
+    Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor> rot;        // N x 4 (quaternion)
+    Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> scale;      // N x 3
+    Eigen::Matrix<float, Eigen::Dynamic, 1> opacity;    // N x 1
     Eigen::MatrixXf sh;         // N x SH_dim (SH = 3 x ((d+1)^2))
 
     size_t size() const { return xyz.rows(); }
@@ -35,6 +35,18 @@ struct GaussianData {
 
         return flat_data;
     }
+
+    std::vector<float> flat_sh() const {
+        std::vector<float> flat_data;
+        flat_data.reserve(size() * (sh_dim()));
+
+        for (int i = 0; i < size(); ++i) {
+            for (int j = 0; j < sh_dim(); ++j) flat_data.push_back(sh(i, j));
+        }
+
+        return flat_data;
+    }
+
 
     static GaussianData load_ply(const char* filename, int max_sh_degree = 3) {
         std::ifstream ss(filename, std::ios::binary);
@@ -87,12 +99,12 @@ struct GaussianData {
             return Eigen::Map<Eigen::VectorXf>(reinterpret_cast<float*>(pd->buffer.get()), N);
         };
 
-        Eigen::MatrixXf xyz(N, 3);
+        Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> xyz(N,3);
         xyz.col(0) = load_vec(x, N);
         xyz.col(1) = load_vec(y, N);
         xyz.col(2) = load_vec(z, N);
 
-        Eigen::MatrixXf rot(N, 4);
+        Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor> rot(N,4);
         rot.col(0) = load_vec(rot_w, N);
         rot.col(1) = load_vec(rot_x, N);
         rot.col(2) = load_vec(rot_y, N);
@@ -100,12 +112,13 @@ struct GaussianData {
 
         for (int i = 0; i < N; ++i) rot.row(i).normalize();
 
-        Eigen::MatrixXf scale(N, 3);
+        Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> scale(N, 3);
         scale.col(0) = load_vec(scale_0, N).array().exp();
         scale.col(1) = load_vec(scale_1, N).array().exp();
         scale.col(2) = load_vec(scale_2, N).array().exp();
 
-        Eigen::MatrixXf opac = load_vec(opacity, N);
+        Eigen::Matrix<float, Eigen::Dynamic, 1> opac(N);
+        opac = load_vec(opacity, N);
         opac = (1.0f / (1.0f + (-opac.array()).exp())).eval();
 
         Eigen::MatrixXf sh(N, 3 * sh_coeffs);

@@ -20,62 +20,41 @@
 * Contact information: contact@sofa-framework.org                             *
 ******************************************************************************/
 #pragma once
+#include <GL/gl.h>
+#include <Eigen/Dense>
 
-#include <sofa/pointcloud/config.h>
-#include <sofa/core/objectmodel/BaseObject.h>
-#include <sofa/core/objectmodel/DataFileName.h>
-#include <fstream>
-#include <sofa/pointcloud/components/liteviz-dataloader.h>
-
-namespace sofa::core::objectmodel
+class BaseGLBuffer
 {
-
-
-/// Specialization for reading strings
-template<>
-bool Data<Eigen::MatrixXf>::read( const std::string& str );
-
-template<>
-std::string Data<Eigen::MatrixXf>::getValueString() const;
-
-}
-
-namespace sofa::pointcloud::components
-{
-using sofa::core::objectmodel::DataFileName;
-using sofa::core::objectmodel::BaseObject;
-
-class PointCloudContainer : public BaseObject {
 public:
-    SOFA_CLASS(PointCloudContainer, BaseObject);
+    //virtual void init(int ssboID) = 0;
+    virtual void cleanup() = 0;
+    virtual void map() = 0;
+    virtual void unmap() = 0;
 
-    PointCloudContainer();
-    ~PointCloudContainer();
-
-    DataFileName d_filename;
-
-    void init() override;
-    void updateBBox();
-
-    bool load(const std::string& filename, int max_sh_degree = 3);
-    void loadNaive();
-
-    size_t size();
-
-    void updateDataFields();
-
-    GaussianData*    data{nullptr};
-
-    Data<Eigen::MatrixXf> d_positions;
-    Data<Eigen::MatrixXf> d_orientations;
-    Data<Eigen::MatrixXf> d_scales;
-    Data<Eigen::MatrixXf> d_opacities;
-    Data<Eigen::MatrixXf> d_sphericalHarmonics;
-
-    Data<type::vector<int>> d_indices;
-
- private:
+    virtual void getValueAsFloats(std::vector<float>& dest) = 0;
+    virtual void getValueAsInts(std::vector<int>& dest) = 0;
 };
 
+struct Plane {
+    Eigen::Vector3f normal; // (a,b,c)
+    float d;                // d
+};
 
-}
+class PointCloudRendererBackend
+{
+public:
+    static bool hasCuda();
+
+    template<class T> static BaseGLBuffer* createBuffer(GLuint ssboID);
+
+    static int transform_and_sort_cuda(
+            const std::array<Plane,6>& clipPlanes,
+            const Eigen::Matrix4f&, BaseGLBuffer* positions,
+                                        BaseGLBuffer* h_keys, BaseGLBuffer* h_values, int N);
+
+    static void transform_and_sort_cpu(const Eigen::Matrix4f& P,
+                                  const Eigen::MatrixXf& positions,
+                                  std::vector<float>& depths,
+                                  std::vector<int>& depth_indices);
+};
+

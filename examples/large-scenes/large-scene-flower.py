@@ -7,5 +7,5 @@ def createScene(root):
     root.addChild("PointCloud")
     root.PointCloud.addChild("Geometry")
     root.PointCloud.addObject("PointCloudContainer", name="container", filename="splats/flowers.ply")
-    root.PointCloud.addObject("PointCloudVisualModel", name="visual", geometry=root.PointCloud.container.linkpath)
-    root.PointCloud.addObject("PointCloudRenderer", name="renderer", camera=root.camera.linkpath)
+    root.PointCloud.addObject("PointCloudVisualModel", name="visual", geometry=root.PointCloud.container.linkpath, isStatic=True)
+    root.PointCloud.addObject("PointCloudRenderer", name="renderer", camera=root.camera.linkpath, printLog=True)

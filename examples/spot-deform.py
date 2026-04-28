@@ -18,7 +18,7 @@ def setupScene(scene):
 
 @SofaPrefab
 def Beam(self):
-        Object("RegularGridTopology", name="grid", min="-5 -5 0", max="5 5 20", n="5 5 20")
+        Object("RegularGridTopology", name="grid", min="-5 -5 0", max="5 5 15", n="5 5 20")
         Object("MechanicalObject", name="state", template="Vec3", translation="11 0 0")
         Object("TetrahedronSetTopologyContainer", name="topology")
         Object("TetrahedronSetTopologyModifier", name="modifier")
@@ -94,9 +94,9 @@ def createScene(root):
     Object("RequiredPlugin",name="Sofa.PointCloud")
     Object("InteractiveCamera", name="camera")
 
-    #root.addObject(EulerToQuaternion(name="euler_to_quaternion"))
-    #root.addObject(RigidDofBuilder(name="rigid_dof_builder"))
-    #root.rigid_dof_builder.orientation.setParent(root.euler_to_quaternion.quaternion) 
+    root.addObject(EulerToQuaternion(name="euler_to_quaternion"))
+    root.addObject(RigidDofBuilder(name="rigid_dof_builder"))
+    root.rigid_dof_builder.orientation.setParent(root.euler_to_quaternion.quaternion) 
     
     with Node("Modelling") as modelling:
         with Beam("beam") as beam:
@@ -104,14 +104,14 @@ def createScene(root):
             beam.state.showObjectScale = 1.0
 
     with Node("Visual") as this_node:
-        Object("PointCloudContainer",name="loader", filename="splats/woodstructure.ply")
-        Object("PointCloudContainer",name="container1", filename="splats/woodstructure.ply")
+        Object("PointCloudContainer",name="loader", filename="splats/spot.ply")
+        Object("PointCloudContainer",name="container1", filename="splats/spot.ply")
 
         Object("PointCloudTransform", name="transform", 
                                   input=this_node.loader.linkpath, 
                                   output=this_node.container1.linkpath,
-                                  frame=[12.53,0.12,1.38, 0.0199684, -0.0549613, 0.00109937, 0.998288],
-                                  scale = [70,100,100])
+                                  frame=[12.53,0.12,15.38, 0,0,0,1],
+                                  scale = [20,100,100])
 
         this_node.init()   
         Object(IdentitySkinning, name="skinning", 
@@ -122,7 +122,7 @@ def createScene(root):
                                         geometry=this_node.loader.linkpath,
                                         frames=beam.Frames.state.position.linkpath,
                                         frameIndices=this_node.skinning.indices.linkpath,
-                                        uniformScale = 70)
+                                        uniformScale = 20)
 
     Object("PointCloudRenderer",  name="renderer", 
                                   camera=root.camera.linkpath)

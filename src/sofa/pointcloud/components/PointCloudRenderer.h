@@ -20,14 +20,17 @@
 * Contact information: contact@sofa-framework.org                             *
 ******************************************************************************/
 #pragma once
-#include <sofa/simulation/Node.h>
 #include <sofa/pointcloud/config.h>
+#include <sofa/pointcloud/components/PointCloudVisualModel.h>
 #include <sofa/pointcloud/components/PointCloudContainer.h>
+#include <sofa/pointcloud/components/PointCloudRendererBackend.h>
 #include <sofa/core/visual/VisualModel.h>
 #include <sofa/component/visual/BaseCamera.h>
+#include <sofa/simulation/Node.h>
 #include <sofa/gl/GLSLShader.h>
 #include <sofa/helper/SelectableItem.h>
 #include <ostream>
+#include <future>
 
 namespace sofa::pointcloud::components
 {
@@ -51,6 +54,7 @@ public:
     Link<BaseCamera> l_camera;
 
     Data<helper::OptionsGroup> d_renderMode;
+    Data<bool> d_withCuda;
 
     void init() override;
 
@@ -61,22 +65,55 @@ public:
 private:
     GLuint              _vao;
     GLuint              _vbo;
-    GLuint              _ssbo_splat;
-    GLuint              _ssbo_index;
+
+    enum SplatProperty
+    {
+        INDEX = 0,
+        POSITION = 1,
+        ROTATION = 2 ,
+        SCALE = 3,
+        OPACITY = 4,
+        SPHERICAL_HARMONICS = 5,
+        DEPTHS = 6
+    };
+
+    GLuint              _ssbo_splat[7];
 
     std::vector<float>  depths;
     gl::GLSLShader      shader;
     GaussianData        renderingData;
 
+    BaseGLBuffer *interop_positions;
+    BaseGLBuffer *interop_depths;
+    BaseGLBuffer *interop_indices;
+
+    std::future<void> a1;
+    std::vector<int> indices;
+    std::map<unsigned int, std::vector<int>> directionalIndices;
+
+    std::map<PointCloudVisualModel*, std::tuple<int,int>> dataCache;
+
+    std::array<Plane,6 > clipPlanes;
+
     void transform(float uniformScale,
                    const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
                    const std::vector<defaulttype::Rigid3Types::Coord>& frames,
+                   const std::vector<defaulttype::Rigid3Types::Coord>& frames2,
                    const std::vector<std::vector<int>>& frameIndices,
-                   Eigen::MatrixXf& positions, Eigen::MatrixXf& orientations, Eigen::MatrixXf& scales);
+                   const Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& srcPositions,
+                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& dstPositions,
+                   const Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor> &srcOrientations,
+                   Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor> &dstOrientations,
+                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor> &scales, int offset);
 
     void sort(const Eigen::Matrix4f& P,
               const Eigen::MatrixXf& positions,
               std::vector<float>& depths,
               std::vector<int> &depth_indices);
+
+    void transform_and_sort(const Eigen::Matrix4f& P,
+                            BaseGLBuffer* position,
+                            BaseGLBuffer* depth,
+                            BaseGLBuffer* indices, int N);
 };
 }

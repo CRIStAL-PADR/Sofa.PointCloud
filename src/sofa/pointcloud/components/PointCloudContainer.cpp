@@ -73,33 +73,59 @@ PointCloudContainer::PointCloudContainer() :
   , d_sphericalHarmonics(initData(&d_sphericalHarmonics, "sphericalHarmonics", ""))
   , d_indices(initData(&d_indices, "indices", "Indices"))
 {
+    addUpdateCallback("updateBox", {&d_positions}, [this](const sofa::core::DataTracker& tracker)
+    {
+        updateBBox();
+        return core::objectmodel::ComponentState::Valid;
+    },{&f_bbox});
 }
 
 PointCloudContainer::~PointCloudContainer()
 {
 }
 
+
+void loader(std::atomic<bool>& running, const std::string& name) {
+    std::vector<std::string> spinner = {"⠁","⠂","⠄","⡀","⢀","⠠","⠐","⠈"};
+    int i = 0;
+
+    std::cout << "\033[?25l"; // hide
+    while (running) {
+        std::cout << "\rLoading "<< name <<": " << spinner[i % spinner.size()] << std::flush;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        ++i;
+    }
+    std::cout << "\033[?25h"; // show
+}
+
 void PointCloudContainer::init()
 {
+    if(isComponentStateValid())
+        return;
+
     Inherit1::init();
+
+    std::atomic<bool> running(true);
+    std::thread t(loader, std::ref(running), d_filename.getValue());
+
     if(!d_filename.isSet() || d_filename.getValue() == ""){
+        loadNaive();
+        return;
+    } else  if( !load(d_filename.getValue()) ){
         d_componentState = core::objectmodel::ComponentState::Invalid;
+        running = false;
+        t.join();
         return;
     }
 
-    if( !load(d_filename.getValue()) ){
-        d_componentState = core::objectmodel::ComponentState::Invalid;
-        return;
-    }
+    running = false;
+    t.join();
 
     d_componentState = core::objectmodel::ComponentState::Valid;
 }
 
-void PointCloudContainer::computeBBox(const core::ExecParams* params, bool onlyVisible)
+void PointCloudContainer::updateBBox()
 {
-    SOFA_UNUSED(params);
-    SOFA_UNUSED(onlyVisible);
-
     if(isComponentStateInvalid())
         return;
 
@@ -112,6 +138,33 @@ void PointCloudContainer::computeBBox(const core::ExecParams* params, bool onlyV
     }
     f_bbox.setValue(box);
 }
+
+void PointCloudContainer::loadNaive()
+{
+    int maxSplats = 100;
+
+    Eigen::MatrixXf gau_xyz(4, 3);  // Positions
+    Eigen::MatrixXf gau_rot(4, 4);  // Rotations
+    Eigen::MatrixXf gau_s(4, 3);    // Scales
+    Eigen::MatrixXf gau_c(4, 3);    // Colors
+    Eigen::MatrixXf gau_a(4, 1);    // Alpha ?
+    for(int i = 0;i<maxSplats;i++)
+    {
+        gau_xyz << cos(i), sin(i), 0;
+        gau_rot << 1, 0, 0, 0;
+        gau_s << 0.03, 0.03, 0.03;
+
+        gau_c << 1, 0, 1,
+            1, 0, 0,
+            0, 1, 0,
+            0, 0, 1;
+        gau_c = (gau_c.array() - 0.5f) / 0.28209f;
+
+        gau_a << 1, 1, 1, 1;
+    }
+
+    data = new GaussianData{ gau_xyz, gau_rot, gau_s, gau_a, gau_c };
+};
 
 bool PointCloudContainer::load(const std::string& filename, int max_sh_degree)
 {
@@ -163,7 +216,6 @@ bool PointCloudContainer::load(const std::string& filename, int max_sh_degree)
     file.read(ss);
 
     int N = x->count;
-
     auto load_vec = [](std::shared_ptr<PlyData>& pd, int N) -> Eigen::VectorXf {
         return Eigen::Map<Eigen::VectorXf>(reinterpret_cast<float*>(pd->buffer.get()), N);
     };

@@ -28,6 +28,8 @@
 #include <filesystem>
 #include <Eigen/Dense>
 #include <sofa/helper/system/FileRepository.h>
+#include <sofa/pointcloud/components/PointCloudRendererBackend.h>
+#include <sofa/helper/ScopedAdvancedTimer.h>
 
 namespace sofa::core
 {
@@ -36,7 +38,7 @@ template<>
 void registerToFactory<sofa::pointcloud::components::PointCloudRenderer>(sofa::core::ObjectFactory* factory)
 {
     factory->registerObjects(core::ObjectRegistrationData("A point cloud renderer.")
-                             .add< sofa::pointcloud::components::PointCloudRenderer >());
+                                 .add< sofa::pointcloud::components::PointCloudRenderer >());
 }
 
 }
@@ -46,8 +48,9 @@ namespace sofa::pointcloud::components
 
 PointCloudRenderer::PointCloudRenderer() :
     l_targetNode(initLink("targetNode", "Link to the node to start rendering from"))
-  , l_camera(initLink("camera", "link to the camera used to render"))
-  , d_renderMode(initData(&d_renderMode, "color_sh_0", "renderMode", ""))
+    , l_camera(initLink("camera", "link to the camera used to render"))
+    , d_renderMode(initData(&d_renderMode, "color_sh_0", "renderMode", "Visualization method, select the spherical harmonics, gaussian or depth values"))
+    , d_withCuda(initData(&d_withCuda, true, "withCuda", "Use the CUDA based rendering of point cloud for high performance, default=true"))
 {
     helper::OptionsGroup methodOptions{"COLOR_SH_0",
                                        "COLOR_SH_1",
@@ -93,40 +96,43 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
 {
     if (!sofa::gl::GLSLShader::InitGLSL())
     {
-        msg_info("BasicShapesGL") << "InitGLSL failed" ;
+        msg_info() << "InitGLSL failed" ;
         return;
     }
 
     auto vtx = helper::system::DataRepository.getFile("shaders/gaussian_splatting.vert");
     auto fg = helper::system::DataRepository.getFile("shaders/gaussian_splatting.frag");
-
-    auto vertexShader = readFile(vtx);
-    auto fragmentShader = readFile(fg);
+    auto geom = helper::system::DataRepository.getFile("shaders/gaussian_splatting.geom");
 
     shader.SetVertexShaderFileName(vtx);
     shader.SetFragmentShaderFileName(fg);
+    shader.SetGeometryShaderFileName(geom);
     shader.InitShaders();
-
-    // Q quad to render a ray-marcher
-    std::vector<float> _vertices = {-1.0f,  1.0f, 1.0f,  1.0f, 1.0f, -1.0f, -1.0f, -1.0f};
 
     glGenVertexArrays(1, &_vao);
     glGenBuffers(1, &_vbo);
     glBindVertexArray(_vao);
     glBindBuffer(GL_ARRAY_BUFFER, _vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 8, _vertices.data(), GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-    glGenBuffers(1, &_ssbo_splat);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat);
+    glGenBuffers(7, _ssbo_splat);
+    for(auto i = 0;i<6;i++)
+    {
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[i]);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, i, _ssbo_splat[i]);
+    }
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    glGenBuffers(1, &_ssbo_index);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_index);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_index);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    // Initialize the interop-buffer
+    interop_positions = PointCloudRendererBackend::createBuffer<float>(_ssbo_splat[SplatProperty::POSITION]);
+    interop_depths = PointCloudRendererBackend::createBuffer<float>(_ssbo_splat[SplatProperty::DEPTHS]);
+    interop_indices = PointCloudRendererBackend::createBuffer<int>(_ssbo_splat[SplatProperty::INDEX]);
 
+    if(!PointCloudRendererBackend::hasCuda()){
+        d_withCuda.setValue(false);
+        msg_warning() << "CUDA is not detected, falling back to pure (low performance) opengl renderer.";
+    }else{
+        msg_info() << "CUDA detected.";
+    }
 }
 
 void PointCloudRenderer::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
@@ -152,6 +158,37 @@ void append(Eigen::MatrixXf& dest, const Eigen::MatrixXf& src)
     dest.block(oldRows, 0, src.rows(), src.cols()) = src;
 }
 
+template<int Size>
+void append(Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& dest,
+            const Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& src)
+{
+    assert(A.cols() == B.cols());
+
+    int oldRows = dest.rows();
+    dest.conservativeResize(dest.rows() + src.rows(), src.cols());
+    dest.block(oldRows, 0, src.rows(), src.cols()) = src;
+}
+
+void append(Eigen::Matrix<float, Eigen::Dynamic, 1>& dest,
+            const Eigen::Matrix<float, Eigen::Dynamic, 1>& src)
+{
+    assert(A.cols() == B.cols());
+
+    int oldRows = dest.rows();
+    dest.conservativeResize(dest.rows() + src.rows(), src.cols());
+    dest.block(oldRows, 0, src.rows(), src.cols()) = src;
+}
+
+
+void append(GaussianData& dest, const GaussianData& src)
+{
+    append(dest.xyz, src.xyz);
+    append(dest.sh, src.sh);
+    append(dest.opacity, src.opacity);
+    append(dest.scale, src.scale);
+    append(dest.rot, src.rot);
+}
+
 std::vector<int> range(int maxSize)
 {
     std::vector<int> tmp {maxSize};
@@ -159,63 +196,126 @@ std::vector<int> range(int maxSize)
     return tmp;
 }
 
-void PointCloudRenderer::sort(const Eigen::Matrix4f& P,
-                              const Eigen::MatrixXf& positions,
-                              std::vector<float>& depths,
-                              std::vector<int>& depth_indices)
-{
-    const Eigen::RowVector3f proj_row = P.row(2).head<3>();
-    for(size_t i=0;i<depth_indices.size(); ++i)
-    {
-        int sorted_idx = depth_indices[i];
-        Eigen::Vector3f center = (positions.row(sorted_idx).transpose());
-        depths[sorted_idx] = proj_row.dot(center);
-    }
-
-    tbb::parallel_sort(depth_indices.begin(), depth_indices.end(),
-                       [&](int i, int j) {
-        return depths[i] < depths[j];
-    });
-}
 
 void PointCloudRenderer::transform(float scale,
+                                   const std::vector<defaulttype::Rigid3Types::Coord>& globalToLocalFrames,
                                    const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
-                                   const std::vector<defaulttype::Rigid3Types::Coord>& frames,
+                                   const std::vector<defaulttype::Rigid3Types::Coord>& currentFrames,
                                    const std::vector<std::vector<int>>& frameIndices,
-                                   Eigen::MatrixXf& positions, Eigen::MatrixXf& orientations, Eigen::MatrixXf& scales)
+                                   const Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& srcPositions,
+                                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& dstPositions,
+                                   const Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor>& srcOrientations,
+                                   Eigen::Matrix<float, Eigen::Dynamic, 4, Eigen::RowMajor>& dstOrientations,
+                                   Eigen::Matrix<float, Eigen::Dynamic, 3, Eigen::RowMajor>& scales, int offset)
 {
     for(size_t frameIndex=0;frameIndex<frameIndices.size();++frameIndex)
     {
-        auto frameCenter = frames[frameIndex].getCenter(); // - initFrames[frameIndex].getCenter();
-        auto frameOrientation = frames[frameIndex].getOrientation();// - initFrames[frameIndex].getOrientation();
+        auto frameCenter = currentFrames[frameIndex].getCenter(); // + globalToLocalFrames[frameIndex].getCenter();
+        auto frameInitCenter = initFrames[frameIndex].getCenter(); // + globalToLocalFrames[frameIndex].getCenter();
+        auto frameOrientation = currentFrames[frameIndex].getOrientation(); // + globalToLocalFrames[frameIndex].getOrientation();
 
         auto T = Eigen::Translation<float,3>(frameCenter.x(), frameCenter.y(), frameCenter.z());
+        auto Tinv = Eigen::Translation<float,3>(-frameInitCenter.x(), -frameInitCenter.y(), -frameInitCenter.z());
         auto R = Eigen::Quaternion<float>(frameOrientation[3], frameOrientation[0], frameOrientation[1], frameOrientation[2]);
         auto S = Eigen::UniformScaling<float>(scale);
 
-        auto transform = T*R;
+        auto transform = T * R;
         for(size_t i=0;i<frameIndices[frameIndex].size(); ++i)
         {
             auto vtxIndex = frameIndices[frameIndex][i];
 
-            Eigen::Vector3f worldPosition = positions.row(vtxIndex).transpose();
-            positions.row(vtxIndex) = transform * worldPosition;
+            Eigen::Vector3f worldPosition = srcPositions.row(vtxIndex).transpose();
+            dstPositions.row(vtxIndex+offset) = transform * (Tinv * worldPosition);
 
-            auto tmp = orientations.row(vtxIndex);
+            auto tmp = srcOrientations.row(vtxIndex);
             Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
 
-            orientations.row(vtxIndex)(0) = (worldOrientation).w();
-            orientations.row(vtxIndex)(1) = (worldOrientation).x();
-            orientations.row(vtxIndex)(2) = (worldOrientation).y();
-            orientations.row(vtxIndex)(3) = (worldOrientation).z();
+            dstOrientations.row(vtxIndex+offset)(0) = (worldOrientation).w();
+            dstOrientations.row(vtxIndex+offset)(1) = (worldOrientation).x();
+            dstOrientations.row(vtxIndex+offset)(2) = (worldOrientation).y();
+            dstOrientations.row(vtxIndex+offset)(3) = (worldOrientation).z();
 
-            scales.row(vtxIndex) = scales.row(vtxIndex)*scale;
+            //scales.row(vtxIndex) = scales.row(vtxIndex)*scale;
         }
     }
 }
 
+// Retourne 6 plans : left, right, bottom, top, near, far
+std::array<Plane, 6> extractFrustumPlanes(
+    const Eigen::Matrix4f& projMat,
+    const Eigen::Matrix4f& viewModelMat)
+{
+    std::array<Plane, 6> planes;
+
+    Eigen::Matrix4f clipMat = projMat * viewModelMat; // colonne-major convention Eigen
+
+    // Pour simplifier
+    auto row = [&](int i){ return clipMat.row(i); };
+
+    // Left
+    planes[0].normal = (row(3) + row(0)).head<3>();
+    planes[0].d = (row(3) + row(0))(3);
+    // Right
+    planes[1].normal = (row(3) - row(0)).head<3>();
+    planes[1].d = (row(3) - row(0))(3);
+    // Bottom
+    planes[2].normal = (row(3) + row(1)).head<3>();
+    planes[2].d = (row(3) + row(1))(3);
+    // Top
+    planes[3].normal = (row(3) - row(1)).head<3>();
+    planes[3].d = (row(3) - row(1))(3);
+    // Near
+    planes[4].normal = (row(3) + row(2)).head<3>();
+    planes[4].d = (row(3) + row(2))(3);
+    // Far
+    planes[5].normal = (row(3) - row(2)).head<3>();
+    planes[5].d = (row(3) - row(2))(3);
+
+    // Normalisation
+    for(auto& p : planes){
+        float len = p.normal.norm();
+        p.normal /= len;
+        p.d /= len;
+    }
+
+    return planes;
+}
+
+bool isSphereInsideFrustum(const std::array<Plane,6>& planes,
+                           const Eigen::Vector3f& center,
+                           float radius)
+{
+    for(const auto& p : planes){
+        if (p.normal.dot(center) + p.d + radius < 0.0f)
+            return false; // complètement en dehors
+    }
+    return true; // intersecte ou à l’intérieur
+}
+
+void generatePlaneMesh(const Plane& plane, std::vector<sofa::type::Vec3>& outVertices)
+{
+    Eigen::Vector3f pointOnPlane = plane.normal * (-plane.d / plane.normal.dot(plane.normal));
+    sofa::type::Vec3 pt = sofa::type::Vec3(pointOnPlane.data());
+
+    // Trouve deux vecteurs orthogonaux au plan
+    Eigen::Vector3f u = plane.normal.cross(Eigen::Vector3f(0,1,0));
+    if(u.norm() < 0.1f) u = plane.normal.cross(Eigen::Vector3f(1,0,0));
+    u = u.normalized();
+    Eigen::Vector3f v = plane.normal.cross(u).normalized();
+
+    float size = 10.0f; // taille du quad
+
+    // 4 coins
+    outVertices.push_back(pt + sofa::type::Vec3(Eigen::Vector3f(size*(u+v)).data()));
+    outVertices.push_back(pt + sofa::type::Vec3(Eigen::Vector3f(size*(u-v)).data()));
+    outVertices.push_back(pt + sofa::type::Vec3(Eigen::Vector3f(size*(-u-v)).data()));
+    outVertices.push_back(pt + sofa::type::Vec3(Eigen::Vector3f(size*(-u+v)).data()));
+}
+
 void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
 {
+    SCOPED_TIMER("PointCloud::doDrawVisual");
+
     auto viewport = vparams->viewport();
 
     Eigen::Matrix4f projmat;
@@ -227,44 +327,89 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     if(!l_camera)
         return;
 
-    // Aggreate the geometries by traversing the scene tree
+    // Aggregate the geometries by traversing the scene tree
     auto visualModels = l_targetNode->getTreeObjects<sofa::pointcloud::components::PointCloudVisualModel>();
     msg_info() << "Found " << visualModels.size() << " gaussian splats visual models.";
-    clear(renderingData);
-    for(auto visual : visualModels)
+
+    std::vector<std::tuple<int,int>> updatesBufferParts;
     {
-        visual->updateVisual(vparams);
-        if(!visual->isComponentStateValid()){
-            continue;
-        }
-
-        if(!visual->l_geometry->data){
-            continue;
-        }
-        int offset = renderingData.xyz.rows();
-
-        // First build the reference geometry
-        append(renderingData.xyz, visual->l_geometry->data->xyz);
-        append(renderingData.sh, visual->l_geometry->data->sh);
-        append(renderingData.opacity, visual->l_geometry->data->opacity);
-        append(renderingData.scale, visual->l_geometry->data->scale);
-        append(renderingData.rot, visual->l_geometry->data->rot);
-
-        auto scale = visual->d_uniformScale.getValue();
-        auto initFrames = visual->initFrames;
-        auto frames = helper::getReadAccessor(visual->d_frames);
-        auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
-
-        std::vector<std::vector<int>> frameMap{frames.size()};
-        for(size_t i=0;i<frameIndices.size();++i)
+        SCOPED_TIMER("PointCloud::doDrawVisual::sceneParsing");
+        for(auto visual : visualModels)
         {
-            frameMap[frameIndices[i]].push_back(offset+i);
-        }
+            visual->updateVisual(vparams);
+            if(!visual->isComponentStateValid()){
+                continue;
+            }
 
-        // Now we need to apply the transformation
-        this->transform(scale,
-                        initFrames,
-                        frames, frameMap, renderingData.xyz, renderingData.rot,renderingData.scale);
+            if(!visual->l_geometry->data){
+                continue;
+            }
+
+            auto scale = visual->d_uniformScale.getValue();
+            auto& referenceFrames = visual->d_initFrames.getValue();
+            auto& localToGlobalFrames = visual->localToGlobalFrames;
+
+            auto frames = helper::getReadAccessor(visual->d_frames);
+            auto frameIndices = helper::getReadAccessor(visual->d_frameIndices);
+
+            if(!dataCache.contains(visual)){
+                int offset = renderingData.xyz.rows();
+                int beginIndex = renderingData.size();
+                int size = visual->l_geometry->data->xyz.rows()*(3+4+3+1+visual->l_geometry->data->sh_dim());
+                dataCache[visual] = std::make_tuple(beginIndex, size);
+
+                append(renderingData.xyz, visual->l_geometry->data->xyz);
+                append(renderingData.sh, visual->l_geometry->data->sh);
+                append(renderingData.opacity, visual->l_geometry->data->opacity);
+                append(renderingData.scale, visual->l_geometry->data->scale);
+                append(renderingData.rot, visual->l_geometry->data->rot);
+
+                std::vector<std::vector<int>> frameMap{frames.size()};
+                for(size_t i=0;i<frameIndices.size();++i)
+                {
+                    frameMap[frameIndices[i]].push_back(i);
+                }
+
+                // Now we need to apply the transformation
+                this->transform(scale,
+                                localToGlobalFrames, referenceFrames,
+                                frames, frameMap,
+                                visual->l_geometry->data->xyz, renderingData.xyz,
+                                visual->l_geometry->data->rot, renderingData.rot,
+                                renderingData.scale, offset);
+
+                msg_info() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size() << msgendl
+                           << "         data set offset & size " << beginIndex << ", " << size;
+                updatesBufferParts.push_back({offset,size});
+                continue;
+            }
+
+            if(visual->d_isStaticModel.getValue())
+                continue;
+
+            auto [offset, size] = dataCache[visual];
+
+            std::vector<std::vector<int>> frameMap{frames.size()};
+            for(size_t i=0;i<frameIndices.size();++i)
+            {
+                frameMap[frameIndices[i]].push_back(i);
+            }
+
+            {
+                SCOPED_TIMER("PointCloud::doDrawVisual::sceneTransform");
+                // Now we need to apply the transformation
+                this->transform(scale,
+                                localToGlobalFrames,
+                                referenceFrames, frames,
+                                frameMap,
+                                visual->l_geometry->data->xyz, renderingData.xyz,
+                                visual->l_geometry->data->rot, renderingData.rot,
+                                renderingData.scale, offset);
+            }
+            msg_info() << "Updating point clouds from " << visual->getPathName() << " with frames " << frames.size() << msgendl
+                       << "         data set offset & size " << offset << ", " << size;
+            updatesBufferParts.push_back({offset,size});
+        }
     }
     msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
 
@@ -275,7 +420,13 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     // Here we have geometries to draw and a camera that look at it.
     // We first send the camera parameters to the gl rendering backend, then the geometries.
     auto c = l_camera->getPosition();
-    Eigen::Vector3f cam_pos {c[0],c[1],c[2]};
+    Eigen::Vector3f cam_pos {(float)c[0],(float)c[1],(float)c[2]};
+
+    vparams->getModelViewMatrix(dviewmat.data());
+    vparams->getProjectionMatrix(dprojmat.data());
+
+    projmat = dprojmat.cast<float>();
+    viewmat = dviewmat.cast<float>();
 
     float fov = l_camera->getFieldOfView();
     float tanHalfFov = tan((fov / 180.0 * M_PI) / 2.0f);
@@ -285,61 +436,133 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
 
     auto mode = d_renderMode.getValue().getSelectedId();
 
+    clipPlanes = extractFrustumPlanes(projmat, viewmat);
+
     defaulttype::Rigid3Types::Coord type;
+    {
+        SCOPED_TIMER("PointCloud::doDrawVisual::renderingSetupUp");
 
-    vparams->drawTool()->pushMatrix();
-    float glTransform[16];
-    type.writeOpenGlMatrix ( glTransform );
-    Eigen::Matrix4f transform {glTransform };
+        vparams->drawTool()->pushMatrix();
+        float glTransform[16];
+        type.writeOpenGlMatrix ( glTransform );
+        Eigen::Matrix4f transform {glTransform };
 
-    vparams->getModelViewMatrix(dviewmat.data());
-    vparams->getProjectionMatrix(dprojmat.data());
+        shader.TurnOn();
+        int max_sh_dim = 48;
 
-    projmat = dprojmat.cast<float>();
-    viewmat = dviewmat.cast<float>();
-
-    shader.TurnOn();
-
-    float scale_modifier = 1;
-    int max_sh_dim = 48;
-
-    shader.SetMatrix4(shader.GetVariable("projmat"), 1, GL_FALSE, projmat.data());
-    shader.SetMatrix4(shader.GetVariable("viewmat"), 1, GL_FALSE, viewmat.data());
-    shader.SetFloatVector3(shader.GetVariable("cam_pos"), 1, cam_pos.data());
-    shader.SetFloatVector2(shader.GetVariable("tanxy"), 1, tanxy.data());
-    shader.SetFloat(shader.GetVariable("focal"), focal);
-
-    shader.SetInt(shader.GetVariable("max_sh_dim"), max_sh_dim);
-    shader.SetInt(shader.GetVariable("render_mod"), mode);
-    shader.SetFloat(shader.GetVariable("scale_modifier"), scale_modifier);
-
-    std::vector<int> indices = range(renderingData.size());
-    depths.resize(indices.size());
-
-    sort(viewmat, renderingData.xyz, depths, indices);
+        shader.SetMatrix4(shader.GetVariable("projmat"), 1, GL_FALSE, projmat.data());
+        shader.SetMatrix4(shader.GetVariable("viewmat"), 1, GL_FALSE, viewmat.data());
+        shader.SetFloatVector3(shader.GetVariable("cam_pos"), 1, cam_pos.data());
+        shader.SetFloatVector2(shader.GetVariable("tanxy"), 1, tanxy.data());
+        shader.SetFloat(shader.GetVariable("focal"), focal);
+        shader.SetInt(shader.GetVariable("max_sh_dim"), max_sh_dim);
+        shader.SetInt(shader.GetVariable("render_mod"), mode);
+    }
 
     glDisable(GL_CULL_FACE);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    std::vector<float> flatData = renderingData.flat();
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, flatData.size() * sizeof(float), flatData.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    static bool firstTime = true;
+    if(firstTime)
+    {
+        firstTime = false;
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::SCALE]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.scale.rows() * sizeof(float) * 3, renderingData.scale.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, _ssbo_splat[SplatProperty::SCALE]);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_index);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_index);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::OPACITY]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.opacity.rows() * sizeof(float), renderingData.opacity.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, _ssbo_splat[SplatProperty::OPACITY]);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    glBindBuffer(GL_ARRAY_BUFFER, _vbo);
-    glBindVertexArray(_vao);
-    glEnableVertexAttribArray(0);
+        auto buffer = renderingData.flat_sh();
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::SPHERICAL_HARMONICS]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, buffer.size()*sizeof(float), buffer.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _ssbo_splat[SplatProperty::SPHERICAL_HARMONICS]);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        indices = range(renderingData.size());
 
-    glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, 4, indices.size());
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glDisableVertexAttribArray(0);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::POSITION]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.xyz.rows() * sizeof(float) * 3, renderingData.xyz.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_splat[SplatProperty::POSITION]);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::ROTATION]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.rot.rows() * sizeof(float) * 4, renderingData.rot.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssbo_splat[SplatProperty::ROTATION]);
+    }
+
+    if(updatesBufferParts.size())
+    {
+        SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate POSITION");
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::POSITION]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.xyz.rows() * sizeof(float) * 3, renderingData.xyz.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssbo_splat[SplatProperty::POSITION]);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::ROTATION]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.rot.rows() * sizeof(float) * 4, renderingData.rot.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssbo_splat[SplatProperty::ROTATION]);
+    }
+
+    if(depths.size()!=indices.size()){
+        SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate INDEX");
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
+
+        depths.resize(indices.size());
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::DEPTHS]);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, depths.size() * sizeof(float), depths.data(), GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, _ssbo_splat[SplatProperty::DEPTHS]);
+    }
+
+    int splatsToDraw = 0;
+    {
+        SCOPED_TIMER("PointCloud::doDrawVisual::splatSorting");
+
+        if(d_withCuda.getValue())
+        {
+            splatsToDraw = PointCloudRendererBackend::transform_and_sort_cuda(
+                clipPlanes,
+                viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
+        }else
+        {
+            std::vector<int> selectedIndices;
+            {
+
+                SCOPED_TIMER("PointCloud::doDrawVisual::planeClipping");
+                // Plane clipping
+                for(auto indice : indices )
+                {
+                    if(isSphereInsideFrustum(clipPlanes, renderingData.xyz.row(indice), 0.05))
+                    {
+                        selectedIndices.push_back(indice);
+                    }
+                }
+            }
+            PointCloudRendererBackend::transform_and_sort_cpu(viewmat, renderingData.xyz,
+                                                              depths, selectedIndices);
+
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
+            glBufferData(GL_SHADER_STORAGE_BUFFER,  selectedIndices.size() * sizeof(int),  selectedIndices.data(), GL_DYNAMIC_DRAW);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
+            splatsToDraw=selectedIndices.size();
+        }
+    }
+
+    {
+        SCOPED_TIMER("PointCloud::doDrawVisual::splatRendering");
+        glBindBuffer(GL_ARRAY_BUFFER, _vbo);
+        glBindVertexArray(_vao);
+
+        glDrawArraysInstanced(GL_POINTS, 0, 1, splatsToDraw);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+    }
+    msg_info() << "Rendering "<< splatsToDraw << "/" << renderingData.size() << " splats.";
 
     shader.TurnOff();
 

@@ -44,9 +44,11 @@ namespace sofa::pointcloud::components
 PointCloudTransform::PointCloudTransform() :
      l_input(initLink("input", "a point cloud container"))
     ,l_output(initLink("output", "a second cloud container"))
-    ,d_frame(initData(&d_frame, "frame", "a frame to control the geometry"))
-    ,d_scale(initData(&d_scale, {1,1,1}, "scale", "a scaling factor"))
+    ,d_frames(initData(&d_frames, "frames", "a frame to control the geometry"))
+    ,d_frameIndices(initData(&d_frameIndices, "frameIndices", "ddd"))
+    ,d_scales(initData(&d_scales, {1}, "scales", "a scaling factor"))
 {
+    d_frames.setValue({defaulttype::Rigid3Types::Coord{{0.0,0.0,0.0},{0.0,0.0,0.0,1.0}}});
 }
 
 PointCloudTransform::~PointCloudTransform()
@@ -55,44 +57,122 @@ PointCloudTransform::~PointCloudTransform()
 
 void PointCloudTransform::init()
 {
+
+    std::cout << "INIT " << std::endl;
     Inherit1::init();
     update();
     d_componentState = core::objectmodel::ComponentState::Valid;
 
-    addUpdateCallback("update", {&d_frame, &d_scale}, [this](const sofa::core::DataTracker&){
+    addUpdateCallback("update", {&d_frames, &d_scales}, [this](const sofa::core::DataTracker&){
+
+        std::cout << "CALLBACK " << std::endl;
         update();
         return sofa::core::objectmodel::ComponentState::Valid;
     }, {&l_output->d_componentState});
 }
 
+void PointCloudTransform::clear(GaussianData& data)
+{
+    data.xyz.resize(0, data.xyz.cols());
+    data.sh.resize(0, data.sh.cols());
+    data.opacity.resize(0, data.opacity.cols());
+    data.rot.resize(0, data.rot.cols());
+    data.scale.resize(0, data.scale.cols());
+}
+
+void PointCloudTransform::append(Eigen::MatrixXf& dest, const Eigen::MatrixXf& src)
+{
+    assert(A.cols() == B.cols());
+
+    int oldRows = dest.rows();
+    dest.conservativeResize(dest.rows() + src.rows(), src.cols());
+    dest.block(oldRows, 0, src.rows(), src.cols()) = src;
+}
+
+template<unsigned int Size>
+void PointCloudTransform::append(Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& dest,
+                                 const Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& src)
+{
+    assert(A.cols() == B.cols());
+
+    int oldRows = dest.rows();
+    dest.conservativeResize(dest.rows() + src.rows(), src.cols());
+    dest.block(oldRows, 0, src.rows(), src.cols()) = src;
+}
+
+void PointCloudTransform::append(Eigen::Matrix<float, Eigen::Dynamic, 1>& dest,
+                                 const Eigen::Matrix<float, Eigen::Dynamic, 1>& src)
+{
+    assert(A.cols() == B.cols());
+
+    int oldRows = dest.rows();
+    dest.conservativeResize(dest.rows() + src.rows(), src.cols());
+    dest.block(oldRows, 0, src.rows(), src.cols()) = src;
+}
+
+
+void PointCloudTransform::append(GaussianData& dest, const GaussianData& src)
+{
+    append<3>(dest.xyz, src.xyz);
+    append(dest.sh, src.sh);
+    append(dest.opacity, src.opacity);
+    append<3>(dest.scale, src.scale);
+    append<4>(dest.rot, src.rot);
+}
+
 void PointCloudTransform::update()
 {
-    std::cout << "UPDATE ... " << std::endl;
-
     if(l_input->isComponentStateInvalid())
+    {
         return;
+    }
 
     if(l_output->isComponentStateInvalid())
+    {
         return;
+    }
+
 
     auto source = l_input->data;
     auto destination = l_output->data;
+    clear(*(l_output->data));
+    append(*(l_output->data), *(l_input->data));
 
-    auto frame = d_frame.getValue();
-    auto center = frame.getCenter();
-    auto orientation = frame.getOrientation();
-    auto scale = d_scale.getValue()[0];
+    // Compute the rigid transform from frames.
+    auto frames = d_frames.getValue();
+    auto scales = d_scales.getValue();
+    auto frameIndices = helper::getWriteAccessor(d_frameIndices);
+    if(frameIndices.size()!=source->size())
+    {
+        frameIndices.resize(source->size(), 0);
+    }
 
-    auto T = Eigen::Translation<float,3>(center.x(), center.y(), center.z());
-    auto R = Eigen::Quaternion<float>(orientation[3], orientation[0], orientation[1], orientation[2]);
-    auto S = Eigen::UniformScaling<float>(scale);
+    std::vector<Eigen::Translation<float,3>::AffineTransformType> t_transforms{frames.size()};
+    std::vector<Eigen::Quaternion<float>> t_rotations {frames.size()};
+    std::vector<Eigen::UniformScaling<float>> t_scales {frames.size()};
 
-    auto transform = T*R*S;
+    for(size_t frameIndex=0;frameIndex<frames.size();++frameIndex)
+    {
+        auto center = frames[frameIndex].getCenter();
+        auto orientation = frames[frameIndex].getOrientation();
+        auto scale = scales[frameIndex];
+        auto T = Eigen::Translation<float,3>(center.x(), center.y(), center.z());
+        auto R = Eigen::Quaternion<float>(orientation[3], orientation[0], orientation[1], orientation[2]);
+        auto S = Eigen::UniformScaling<float>(scale);
+        auto RST = T*R*S;
+        t_transforms[frameIndex] = RST;
+        t_rotations[frameIndex] = R;
+        t_scales[frameIndex] = S;
+    }
 
     for(size_t vtxIndex=0;vtxIndex<source->xyz.rows(); ++vtxIndex)
     {
+        auto TRS = t_transforms[frameIndices[vtxIndex]];
+        auto R = t_rotations[frameIndices[vtxIndex]];
+        auto S = t_scales[frameIndices[vtxIndex]];
+
         Eigen::Vector3f worldPosition = ((source->xyz.row(vtxIndex).transpose()));
-        destination->xyz.row(vtxIndex) = transform * worldPosition;
+        destination->xyz.row(vtxIndex) = TRS * worldPosition;
 
         auto tmp = source->rot.row(vtxIndex);
         Eigen::Quaternionf worldOrientation = R * Eigen::Quaternionf{tmp(0), tmp(1), tmp(2), tmp(3)};
@@ -101,8 +181,7 @@ void PointCloudTransform::update()
         destination->rot.row(vtxIndex)(2) = (worldOrientation).y();
         destination->rot.row(vtxIndex)(3) = (worldOrientation).z();
 
-        destination->scale.row(vtxIndex) = source->scale.row(vtxIndex)*scale;
-
+        destination->scale.row(vtxIndex) = source->scale.row(vtxIndex)*S;
     }
 
     l_output->updateDataFields();
