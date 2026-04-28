@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.12)
 
-project(Sofa.PointCloud LANGUAGES CUDA CXX)
+project(Sofa.PointCloud LANGUAGES CXX)
+option(SOFA_POINTCLOUD_CUDA "Enable CUDA support")
 set(SOFA_POINTCLOUD_SRC "src/sofa/pointcloud")
 
 find_package(Sofa.Core REQUIRED)
@@ -8,11 +9,32 @@ find_package(Sofa.Component.Visual REQUIRED)
 find_package(Sofa.GL REQUIRED)
 find_package(SofaPython3 REQUIRED)
 
-set(CMAKE_CUDA_FLAGS "-D__CUDA_NO_MATH_FUNCTIONS__ -O3 -std=c++17 -Xcompiler=-fPIC -Wno-attributes -fsized-deallocation -v")
-set(CMAKE_CUDA_STANDARD 17)
+# ================= CUDA detection =================
+if(SOFA_POINTCLOUD_CUDA)
+    include(CheckLanguage)
+    check_language(CUDA)
+
+    if(CMAKE_CUDA_COMPILER)
+        enable_language(CUDA)
+        set(HAVE_CUDA TRUE)
+        message(WARNING "CUDA enabled")
+    else()
+        set(HAVE_CUDA FALSE)
+        message(WARNING "CUDA requested but not found, disabling")
+    endif()
+else()
+    set(HAVE_CUDA FALSE)
+endif()
+
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
+if(HAVE_CUDA)
+    set(CMAKE_CUDA_STANDARD 17)
+    set(CMAKE_CUDA_FLAGS "-D__CUDA_NO_MATH_FUNCTIONS__ -O3 -std=c++17 -Xcompiler=-fPIC -Wno-attributes -fsized-deallocation -v")
+endif()
 
 set(HEADER_FILES
     ${SOFA_POINTCLOUD_SRC}/config.h.in
@@ -39,14 +61,24 @@ set(SOURCE_FILES
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudContainer.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudTransform.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRenderer.cpp
-    ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererBackend.cu
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererCUDA.cpp
 )
 
+# CUDA sources conditionnels
+if(HAVE_CUDA)
+    list(APPEND SOURCE_FILES
+        ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererBackend.cu
+    )
+endif()
+
 add_library(${PROJECT_NAME} SHARED ${HEADER_FILES} ${SOURCE_FILES})
 target_link_libraries(${PROJECT_NAME} PUBLIC Sofa.Core Sofa.Component.Visual Sofa.GL SofaPython3::Plugin tbb)
+
+if(HAVE_CUDA)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE SOFA_POINTCLOUD_USE_CUDA)
+endif()
 
 sofa_create_package_with_targets(
     PACKAGE_NAME ${PROJECT_NAME}
