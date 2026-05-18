@@ -9,6 +9,8 @@ find_package(Sofa.Component.Visual REQUIRED)
 find_package(Sofa.GL REQUIRED)
 find_package(SofaPython3 REQUIRED)
 
+include_directories(extlibs/tinyply/source)
+
 # ================= CUDA detection =================
 if(SOFA_POINTCLOUD_CUDA)
     include(CheckLanguage)
@@ -70,6 +72,10 @@ set(SOURCE_FILES
 if(HAVE_CUDA)
     list(APPEND SOURCE_FILES
         ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererBackend.cu
+    )
+else()
+    list(APPEND SOURCE_FILES
+        ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererBackend.cpp
     )
 endif()
 
