@@ -22,28 +22,48 @@
 #pragma once
 
 #include <sofa/pointcloud/config.h>
-#include <sofa/core/objectmodel/BaseObject.h>
-#include <sofa/core/objectmodel/DataFileName.h>
-#include <sofa/pointcloud/components/PointCloudGeometry.h>
+#include <sofa/gl/GLSLShader.h>
+#include <sofa/pointcloud/components/PointCloudOctree.h>
+#include <sofa/core/visual/VisualModel.h>
+#include <sofa/component/visual/BaseCamera.h>
+#include <sofa/helper/SelectableItem.h>
+#include <ostream>
 
 namespace sofa::pointcloud::components
 {
-using sofa::core::objectmodel::DataFileName;
 using sofa::core::objectmodel::BaseObject;
+using sofa::component::visual::BaseCamera;
 
-class PointCloudInspector : public BaseObject {
+// References:
+//  - https://huggingface.co/blog/gaussian-splatting
+class PointCloudOctreeVisualModel : public sofa::core::visual::VisualModel {
+private:
+    template<class T>
+    using Link = core::objectmodel::SingleLink<PointCloudOctreeVisualModel, T, core::objectmodel::BaseLink::FLAG_STOREPATH>;
+
 public:
-    SOFA_CLASS(PointCloudInspector, BaseObject);
+    SOFA_CLASS(PointCloudOctreeVisualModel, BaseObject);
 
-    PointCloudInspector();
-    ~PointCloudInspector();
+    PointCloudOctreeVisualModel();
+    ~PointCloudOctreeVisualModel() override;
+
+    Link<PointCloudOctree> l_geometry;
+
+    Data<type::vector<int>> d_indices;
+    Data<type::vector<defaulttype::Rigid3Types::Coord>> d_frames;
+    Data<type::vector<defaulttype::Rigid3Types::Coord>> d_initFrames;
+    Data<type::vector<int>> d_frameIndices;
+    Data<float> d_uniformScale;
+    Data<bool> d_isStaticModel;
+    Data<bool> d_doInit;
 
     void init() override;
-    void draw(const sofa::core::visual::VisualParams* params) override;
+    void doUpdateVisual(const sofa::core::visual::VisualParams* vparams) final;
 
-    SingleLink<PointCloudInspector, PointCloudGeometry, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_input;
- private:
+public:
+    void initTransform();
+    type::vector<defaulttype::Rigid3Types::Coord> referenceFrames;
+    type::vector<defaulttype::Rigid3Types::Coord> localToGlobalFrames;
+
 };
-
-
 }

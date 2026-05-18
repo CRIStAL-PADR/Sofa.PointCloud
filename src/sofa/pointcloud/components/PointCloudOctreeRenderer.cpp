@@ -20,13 +20,10 @@
 * Contact information: contact@sofa-framework.org                             *
 ******************************************************************************/
 #include <sofa/pointcloud/fwd.h>
-#include <sofa/pointcloud/components/PointCloudRenderer.h>
-#include <sofa/pointcloud/components/PointCloudVisualModel.h>
+#include <sofa/pointcloud/components/PointCloudOctreeRenderer.h>
 #include <sofa/core/visual/VisualParams.h>
 #include <sofa/core/ObjectFactory.h>
 #include <sofa/pointcloud/components/utils.h>
-#include <fstream>
-#include <filesystem>
 #include <Eigen/Dense>
 #include <sofa/helper/system/FileRepository.h>
 #include <sofa/pointcloud/components/PointCloudRendererBackend.h>
@@ -36,10 +33,10 @@ namespace sofa::core
 {
 
 template<>
-void registerToFactory<sofa::pointcloud::components::PointCloudRenderer>(sofa::core::ObjectFactory* factory)
+void registerToFactory<sofa::pointcloud::components::PointCloudOctreeRenderer>(sofa::core::ObjectFactory* factory)
 {
     factory->registerObjects(core::ObjectRegistrationData("A point cloud renderer.")
-                                 .add< sofa::pointcloud::components::PointCloudRenderer >());
+                                 .add< sofa::pointcloud::components::PointCloudOctreeRenderer >());
 }
 
 }
@@ -47,7 +44,7 @@ void registerToFactory<sofa::pointcloud::components::PointCloudRenderer>(sofa::c
 namespace sofa::pointcloud::components
 {
 
-PointCloudRenderer::PointCloudRenderer() :
+PointCloudOctreeRenderer::PointCloudOctreeRenderer() :
     l_targetNode(initLink("targetNode", "Link to the node to start rendering from"))
     , l_camera(initLink("camera", "link to the camera used to render"))
     , d_renderMode(initData(&d_renderMode, "color_sh_0", "renderMode", "Visualization method, select the spherical harmonics, gaussian or depth values"))
@@ -64,10 +61,9 @@ PointCloudRenderer::PointCloudRenderer() :
     d_renderMode.setValue(methodOptions);
 }
 
+PointCloudOctreeRenderer::~PointCloudOctreeRenderer() {}
 
-PointCloudRenderer::~PointCloudRenderer() {}
-
-void PointCloudRenderer::init()
+void PointCloudOctreeRenderer::init()
 {
     Inherit1::init();
     if(!l_targetNode)
@@ -76,7 +72,7 @@ void PointCloudRenderer::init()
     }
 }
 
-void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vparams)
+void PointCloudOctreeRenderer::doInitVisual(const sofa::core::visual::VisualParams* vparams)
 {
     if (!sofa::gl::GLSLShader::InitGLSL())
     {
@@ -119,13 +115,12 @@ void PointCloudRenderer::doInitVisual(const sofa::core::visual::VisualParams* vp
     }
 }
 
-void PointCloudRenderer::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
+void PointCloudOctreeRenderer::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
 {
     SOFA_UNUSED(vparams);
 }
 
-
-void PointCloudRenderer::transform(float scale,
+void PointCloudOctreeRenderer::transform(float scale,
                                    const std::vector<defaulttype::Rigid3Types::Coord>& globalToLocalFrames,
                                    const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
                                    const std::vector<defaulttype::Rigid3Types::Coord>& currentFrames,
@@ -169,7 +164,7 @@ void PointCloudRenderer::transform(float scale,
 }
 
 
-void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
+void PointCloudOctreeRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vparams)
 {
     SCOPED_TIMER("PointCloud::doDrawVisual");
 
@@ -185,8 +180,10 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         return;
 
     // Aggregate the geometries by traversing the scene tree
-    auto visualModels = l_targetNode->getTreeObjects<sofa::pointcloud::components::PointCloudVisualModel>();
+    auto visualModels = l_targetNode->getTreeObjects<sofa::pointcloud::components::PointCloudOctreeVisualModel>();
     msg_info() << "Found " << visualModels.size() << " gaussian splats visual models.";
+
+    indices.clear();
 
     std::vector<std::tuple<int,int>> updatesBufferParts;
     {
@@ -198,9 +195,12 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
                 continue;
             }
 
-            if(!visual->l_geometry->data){
+            if(!visual->l_geometry->data && !visual->l_geometry->d_indices.isSet()){
                 continue;
             }
+
+            float aspect = static_cast<float>(viewport[2]) / viewport[3];
+            visual->l_geometry->updateIndices(l_camera, aspect);
 
             auto scale = visual->d_uniformScale.getValue();
             auto& referenceFrames = visual->d_initFrames.getValue();
@@ -238,13 +238,19 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
                 msg_info() << "Batching a new data set " << visual->getPathName() << " with frames " << frames.size() << msgendl
                            << "         data set offset & size " << beginIndex << ", " << size;
                 updatesBufferParts.push_back({offset,size});
+                
                 continue;
             }
-
             if(visual->d_isStaticModel.getValue())
-                continue;
-
+            continue;
+        
+        
             auto [offset, size] = dataCache[visual];
+        
+            const auto& localIndices = visual->l_geometry->d_indices.getValue();
+            indices.reserve(indices.size() + localIndices.size());
+            indices.insert(indices.end(), localIndices.begin(), localIndices.end());
+
 
             std::vector<std::vector<int>> frameMap{frames.size()};
             for(size_t i=0;i<frameIndices.size();++i)
@@ -266,6 +272,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             msg_info() << "Updating point clouds from " << visual->getPathName() << " with frames " << frames.size() << msgendl
                        << "         data set offset & size " << offset << ", " << size;
             updatesBufferParts.push_back({offset,size});
+
         }
     }
     msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
@@ -339,7 +346,6 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBufferData(GL_SHADER_STORAGE_BUFFER, buffer.size()*sizeof(float), buffer.data(), GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, _ssbo_splat[SplatProperty::SPHERICAL_HARMONICS]);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-        indices = range(renderingData.size());
 
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::POSITION]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.xyz.rows() * sizeof(float) * 3, renderingData.xyz.data(), GL_DYNAMIC_DRAW);
@@ -361,14 +367,14 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
         glBufferData(GL_SHADER_STORAGE_BUFFER, renderingData.rot.rows() * sizeof(float) * 4, renderingData.rot.data(), GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssbo_splat[SplatProperty::ROTATION]);
     }
-
+        
     if(depths.size()!=indices.size()){
         SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate INDEX");
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
 
-        depths.resize(indices.size());
+        depths.resize(renderingData.size());
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::DEPTHS]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, depths.size() * sizeof(float), depths.data(), GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 6, _ssbo_splat[SplatProperty::DEPTHS]);

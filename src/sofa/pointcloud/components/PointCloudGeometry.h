@@ -24,26 +24,52 @@
 #include <sofa/pointcloud/config.h>
 #include <sofa/core/objectmodel/BaseObject.h>
 #include <sofa/core/objectmodel/DataFileName.h>
-#include <sofa/pointcloud/components/PointCloudGeometry.h>
+#include <fstream>
+#include <sofa/pointcloud/components/liteviz-dataloader.h>
 
-namespace sofa::pointcloud::components
+namespace sofa::core::objectmodel
 {
-using sofa::core::objectmodel::DataFileName;
-using sofa::core::objectmodel::BaseObject;
 
-class PointCloudInspector : public BaseObject {
-public:
-    SOFA_CLASS(PointCloudInspector, BaseObject);
 
-    PointCloudInspector();
-    ~PointCloudInspector();
+/// Specialization for reading strings
+template<>
+bool Data<Eigen::MatrixXf>::read( const std::string& str );
 
-    void init() override;
-    void draw(const sofa::core::visual::VisualParams* params) override;
+template<>
+std::string Data<Eigen::MatrixXf>::getValueString() const;
 
-    SingleLink<PointCloudInspector, PointCloudGeometry, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_input;
- private:
-};
+}
 
+namespace sofa::pointcloud::components{
+    using sofa::core::objectmodel::DataFileName;
+    using sofa::core::objectmodel::BaseObject;
+
+    void loader(std::atomic<bool>& running, const std::string& name);
+    class PointCloudGeometry : public BaseObject {
+        public:
+            SOFA_CLASS(PointCloudGeometry, BaseObject);
+
+            PointCloudGeometry();
+            ~PointCloudGeometry();
+
+            void init() override {}
+
+
+            GaussianData*    data{nullptr};
+
+            Data<Eigen::MatrixXf> d_positions;
+            Data<Eigen::MatrixXf> d_orientations;
+            Data<Eigen::MatrixXf> d_scales;
+            Data<Eigen::MatrixXf> d_opacities;
+            Data<Eigen::MatrixXf> d_sphericalHarmonics;
+
+            Data<type::vector<int>> d_indices;
+
+            void updateBBox();
+            size_t size();
+            void updateDataFields();
+
+        private:
+    };
 
 }

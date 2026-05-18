@@ -42,12 +42,18 @@ set(HEADER_FILES
     ${SOFA_POINTCLOUD_SRC}/config.h.in
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudContainer.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudTransform.h
+    ${SOFA_POINTCLOUD_SRC}/components/utils.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRenderer.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererBackend.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererCUDA.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.h
     ${SOFA_POINTCLOUD_SRC}/components/liteviz-dataloader.h
+    ${SOFA_POINTCLOUD_SRC}/components/OctreeNode.h
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudOctree.h
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudOctreeRenderer.h
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudOctreeVisualModel.h
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudGeometry.h
     extlibs/liteviz-gs/liteviz/dataloader.h
     extlibs/liteviz-gs/liteviz/renderer.h
     extlibs/liteviz-gs/liteviz/shader.h
@@ -62,10 +68,16 @@ set(SOURCE_FILES
     ${SOFA_POINTCLOUD_SRC}/fwd.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudContainer.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudTransform.cpp
+    ${SOFA_POINTCLOUD_SRC}/components/utils.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRenderer.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererCUDA.cpp
+    ${SOFA_POINTCLOUD_SRC}/components/OctreeNode.cpp
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudOctree.cpp
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudOctreeRenderer.cpp
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudOctreeVisualModel.cpp
+    ${SOFA_POINTCLOUD_SRC}/components/PointCloudGeometry.cpp
 )
 
 # CUDA sources conditionnels

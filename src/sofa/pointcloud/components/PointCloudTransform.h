@@ -24,7 +24,7 @@
 #include <sofa/pointcloud/config.h>
 #include <sofa/core/objectmodel/BaseObject.h>
 #include <sofa/core/objectmodel/DataFileName.h>
-#include <sofa/pointcloud/components/PointCloudContainer.h>
+#include <sofa/pointcloud/components/PointCloudGeometry.h>
 
 namespace sofa::pointcloud::components
 {
@@ -40,8 +40,8 @@ public:
 
     void init() override;
 
-    SingleLink<PointCloudTransform, PointCloudContainer, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_input;
-    SingleLink<PointCloudTransform, PointCloudContainer, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_output;
+    SingleLink<PointCloudTransform, PointCloudGeometry, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_input;
+    SingleLink<PointCloudTransform, PointCloudGeometry, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_output;
 
     void clear(GaussianData& data);
     void append(Eigen::MatrixXf& dest, const Eigen::MatrixXf& src);

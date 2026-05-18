@@ -1,0 +1,147 @@
+/******************************************************************************
+*                 SOFA, Simulation Open-Framework Architecture                *
+*                    (c) 2025 CNRS, INRIA, USTL, UJF, CNRS, MGH               *
+*                                                                             *
+* This program is free software; you can redistribute it and/or modify it     *
+* under the terms of the GNU Lesser General Public License as published by    *
+* the Free Software Foundation; either version 2.1 of the License, or (at     *
+* your option) any later version.                                             *
+*                                                                             *
+* This program is distributed in the hope that it will be useful, but WITHOUT *
+* ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or       *
+* FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License *
+* for more details.                                                           *
+*                                                                             *
+* You should have received a copy of the GNU Lesser General Public License    *
+* along with this program. If not, see <http://www.gnu.org/licenses/>.        *
+*******************************************************************************
+* Authors: The SOFA Team and external contributors (see Authors.txt)          *
+*                                                                             *
+* Contact information: contact@sofa-framework.org                             *
+******************************************************************************/
+#include <sofa/pointcloud/fwd.h>
+#include <sofa/pointcloud/components/PointCloudOctreeVisualModel.h>
+#include <sofa/core/visual/VisualParams.h>
+#include <sofa/core/ObjectFactory.h>
+#include <fstream>
+#include <filesystem>
+#include <Eigen/Dense>
+#include <sofa/helper/system/FileRepository.h>
+
+
+namespace sofa::core
+{
+
+template<>
+void registerToFactory<sofa::pointcloud::components::PointCloudOctreeVisualModel>(sofa::core::ObjectFactory* factory)
+{
+    factory->registerObjects(core::ObjectRegistrationData("A point cloud visual model.")
+                             .add< sofa::pointcloud::components::PointCloudOctreeVisualModel >());
+}
+
+}
+
+namespace sofa::pointcloud::components
+{
+
+PointCloudOctreeVisualModel::PointCloudOctreeVisualModel() :
+      l_geometry(initLink("geometry", "link to the topology container"))
+    , d_indices(initData(&d_indices, "indices", " the indices in the geometry to display"))
+    , d_frames(initData(&d_frames, "frames", " set of frame controlling the geometry"))
+    , d_initFrames(initData(&d_initFrames, "initFrames", " initiale frames location/orientation, if empty, use frames as reference"))
+    , d_frameIndices(initData(&d_frameIndices, "frameIndices", " the indice mapping each splats to a frame"))
+    , d_uniformScale(initData(&d_uniformScale, 1.0f, "uniformScale", " scale factor to apply to whole shape"))
+    , d_isStaticModel(initData(&d_isStaticModel, false, "isStatic", "true if the data is fully static" ))
+    , d_doInit(initData(&d_doInit, false, "doInit", "true if the data is fully static" ))
+
+{
+    d_frames.setValue({defaulttype::Rigid3Types::Coord{{0.0,0.0,0.0},{0.0,0.0,0.0,1.0}}});
+}
+
+PointCloudOctreeVisualModel::~PointCloudOctreeVisualModel()
+{
+}
+
+void PointCloudOctreeVisualModel::init()
+{
+    if( isComponentStateValid() )
+        return;
+    Inherit1::init();
+
+
+    if(!l_geometry)
+    {
+        msg_error() << "Missing the geometry to render. To remove this message, set the link named 'geometry' so it point to a valid PointCloudContainer ";
+        d_componentState = sofa::core::objectmodel::ComponentState::Invalid;
+        return;
+    }
+
+    if(d_frameIndices.getValue().size()==0 && l_geometry->data)
+    {
+        auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
+        frames.resize(l_geometry->data->size(), 0);
+    }
+
+    initTransform();
+
+    // Track the geometry component state
+    addUpdateCallback("update", {&l_geometry->d_componentState}, [this](const sofa::core::DataTracker&){
+        if(!l_geometry->isComponentStateValid())
+        {
+            msg_warning() << "The geometry associated with this visual model is in an invalid state";
+            return sofa::core::objectmodel::ComponentState::Invalid;
+        }
+
+        auto frames = sofa::helper::getWriteOnlyAccessor(d_frameIndices);
+        if(frames.size()!=l_geometry->data->size())
+        {
+            frames.resize(l_geometry->data->size(), 0);
+        }
+
+        initTransform();
+
+        return sofa::core::objectmodel::ComponentState::Valid;
+    }, {&d_frameIndices});
+
+
+
+    d_componentState = sofa::core::objectmodel::ComponentState::Valid;
+}
+
+void PointCloudOctreeVisualModel::initTransform()
+{
+    std::cout << "INIT TRANSFORM" << std::endl;
+    if(d_initFrames.isSet())
+    {
+        std::cout << "INIT TRANSFORM => Initialize using frames, so future frames will be interpreted as delta compared to this reference" << std::endl;
+        d_initFrames.updateIfDirty();
+        d_initFrames.setParent(nullptr);
+    }
+    else{
+        auto initFrames = helper::getWriteOnlyAccessor(d_initFrames);
+        auto frames = helper::getReadAccessor(d_frames);
+        initFrames.clear();
+        for(auto& frame : frames)
+        {
+            initFrames.push_back(defaulttype::Rigid3Types::Coord{});
+        }
+    }
+
+    auto initFrames = helper::getReadAccessor(d_initFrames);
+
+    referenceFrames.clear();
+    localToGlobalFrames.clear();
+    for(auto& frame : initFrames)
+    {
+        localToGlobalFrames.push_back(frame-frame);
+        referenceFrames.push_back(frame);
+    };
+}
+
+void PointCloudOctreeVisualModel::doUpdateVisual(const sofa::core::visual::VisualParams* vparams)
+{
+    SOFA_UNUSED(vparams);
+    d_frameIndices.updateIfDirty();
+}
+
+}
