@@ -215,7 +215,6 @@ void PointCloudOctreeRenderer::doDrawVisual(const sofa::core::visual::VisualPara
     SCOPED_TIMER("PointCloud::doDrawVisual");
 
     auto viewport = vparams->viewport();
-    static bool renderingChange = false;
 
     Eigen::Matrix4f projmat;
     Eigen::Matrix4f viewmat;
@@ -233,6 +232,7 @@ void PointCloudOctreeRenderer::doDrawVisual(const sofa::core::visual::VisualPara
     indices.clear();
 
     bool indiceChanged = false;
+    bool shChange = false;
 
     std::vector<std::tuple<int,int>> updatesBufferParts;
     {
@@ -301,38 +301,40 @@ void PointCloudOctreeRenderer::doDrawVisual(const sofa::core::visual::VisualPara
                 updatesBufferParts.push_back({offset,size});
                 indiceChanged = true;                
                 continue;
-            } else if (std::get<2>(dataCache[visual]) != visual->d_enable.getValue()) {
-                SCOPED_TIMER("PointCloud::doDrawVisual::updateDataCache");
+            } else {
+                if (std::get<2>(dataCache[visual]) != visual->d_enable.getValue()) {
+                    SCOPED_TIMER("PointCloud::doDrawVisual::updateDataCache");
 
-                dataCache[visual] = std::make_tuple(std::get<0>(dataCache[visual]), std::get<1>(dataCache[visual]), visual->d_enable.getValue(), std::get<3>(dataCache[visual]));
-                auto [offset, size, enable, showLod] = dataCache[visual];
-                int visual_size = visual->d_indices.getValue().size();
-                renderingChange = true;
-                if (enable) {
-                    indices.resize(indices.size() + visual_size);
-                    for(int i=offset; i < offset + visual_size; ++i)
-                    {
-                        indices.push_back(i);
+                    dataCache[visual] = std::make_tuple(std::get<0>(dataCache[visual]), std::get<1>(dataCache[visual]), visual->d_enable.getValue(), std::get<3>(dataCache[visual]));
+                    auto [offset, size, enable, showLod] = dataCache[visual];
+                    int visual_size = visual->d_indices.getValue().size();
+                    if (enable) {
+                        indices.resize(indices.size() + visual_size);
+                        for(int i=offset; i < offset + visual_size; ++i)
+                        {
+                            indices.push_back(i);
+                        }
+                    } else {
+                        indices.erase(
+                            std::remove_if(indices.begin(), indices.end(), [&](int indice) {
+                                return indice >= offset && indice < offset + visual_size;
+                            }),
+                            indices.end()
+                        );
                     }
-                } else {
-                    indices.erase(
-                        std::remove_if(indices.begin(), indices.end(), [&](int indice) {
-                            return indice >= offset && indice < offset + visual_size;
-                        }),
-                        indices.end()
-                    );
+                    indiceChanged = true;
                 }
-                indiceChanged = true;
+
+                if(std::get<3>(dataCache[visual]) != visual->l_geometry->d_showLod.getValue()) {
+                    dataCache[visual] = std::make_tuple(std::get<0>(dataCache[visual]), std::get<1>(dataCache[visual]), std::get<2>(dataCache[visual]), visual->l_geometry->d_showLod.getValue());
+                    updateSh(&dataCache, &renderingData, visual);
+                    shChange = true;
+                }
             }
 
             auto [offset, size, enable, showLod] = dataCache[visual];
             if(visual->d_isStaticModel.getValue() || !enable)
             continue;
-        
-
-            if(showLod != visual->l_geometry->d_showLod.getValue()) {
-                updateSh(&dataCache, &renderingData, visual);
-            }
             
             const auto& localIndices = visual->l_geometry->d_indices.getValue();
             indices.reserve(indices.size() + localIndices.size());
@@ -446,7 +448,7 @@ void PointCloudOctreeRenderer::doDrawVisual(const sofa::core::visual::VisualPara
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssbo_splat[SplatProperty::ROTATION]);
     }
 
-    if (renderingChange){
+    if (shChange){
         SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate SH");
 
         auto buffer = renderingData.flat_sh();
