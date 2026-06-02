@@ -24,7 +24,7 @@
 #include <sofa/pointcloud/config.h>
 #include <sofa/core/objectmodel/BaseObject.h>
 #include <sofa/core/objectmodel/DataFileName.h>
-#include <sofa/pointcloud/components/PointCloudContainer.h>
+#include <sofa/pointcloud/components/PointCloudGeometry.h>
 
 namespace sofa::pointcloud::components
 {
@@ -41,7 +41,7 @@ public:
     void init() override;
     void draw(const sofa::core::visual::VisualParams* params) override;
 
-    SingleLink<PointCloudInspector, PointCloudContainer, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_input;
+    SingleLink<PointCloudInspector, PointCloudGeometry, sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_input;
  private:
 };
 

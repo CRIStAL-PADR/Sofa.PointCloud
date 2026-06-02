@@ -28,7 +28,7 @@ class DofManipulator(Sofa.Core.Controller):
 def Spot(name, position):
     with Node(name) as spot:
         with Node("geometry") as geometry:
-            Object("PointCloudContainer", name="splats", filename="splats/spot.ply")
+            Object("PointCloudContainer", name="splats", filename="splats/spot/spot.ply")
             
         with Node("mechanical") as mechanical:
             Object("MechanicalObject", name="state", template="Rigid3", 

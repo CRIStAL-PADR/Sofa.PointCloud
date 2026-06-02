@@ -22,32 +22,19 @@
 #pragma once
 
 #include <sofa/pointcloud/config.h>
+#include <sofa/pointcloud/components/PointCloudGeometry.h>
 #include <sofa/core/objectmodel/BaseObject.h>
 #include <sofa/core/objectmodel/DataFileName.h>
 #include <fstream>
 #include <sofa/pointcloud/components/liteviz-dataloader.h>
 
-namespace sofa::core::objectmodel
-{
-
-
-/// Specialization for reading strings
-template<>
-bool Data<Eigen::MatrixXf>::read( const std::string& str );
-
-template<>
-std::string Data<Eigen::MatrixXf>::getValueString() const;
-
-}
-
 namespace sofa::pointcloud::components
 {
 using sofa::core::objectmodel::DataFileName;
-using sofa::core::objectmodel::BaseObject;
 
-class PointCloudContainer : public BaseObject {
+class PointCloudContainer : public PointCloudGeometry {
 public:
-    SOFA_CLASS(PointCloudContainer, BaseObject);
+    SOFA_CLASS(PointCloudContainer, PointCloudGeometry);
 
     PointCloudContainer();
     ~PointCloudContainer();
@@ -55,24 +42,9 @@ public:
     DataFileName d_filename;
 
     void init() override;
-    void updateBBox();
 
     bool load(const std::string& filename, int max_sh_degree = 3);
     void loadNaive();
-
-    size_t size();
-
-    void updateDataFields();
-
-    GaussianData*    data{nullptr};
-
-    Data<Eigen::MatrixXf> d_positions;
-    Data<Eigen::MatrixXf> d_orientations;
-    Data<Eigen::MatrixXf> d_scales;
-    Data<Eigen::MatrixXf> d_opacities;
-    Data<Eigen::MatrixXf> d_sphericalHarmonics;
-
-    Data<type::vector<int>> d_indices;
 
  private:
 };

@@ -70,4 +70,8 @@ void registerObjects(sofa::core::ObjectFactory* factory)
     registerToFactory<sofa::pointcloud::components::PointCloudTransform>(factory);
     registerToFactory<sofa::pointcloud::components::PointCloudInspector>(factory);
     registerToFactory<sofa::pointcloud::components::PointCloudVisualModel>(factory);
+    registerToFactory<sofa::pointcloud::components::PointCloudOctree>(factory);
+    registerToFactory<sofa::pointcloud::components::PointCloudOctreeRenderer>(factory);
+    registerToFactory<sofa::pointcloud::components::PointCloudOctreeVisualModel>(factory);
+    registerToFactory<sofa::pointcloud::components::PointCloudGeometry>(factory);
 }
