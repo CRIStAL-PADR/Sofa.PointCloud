@@ -69,11 +69,15 @@ namespace sofa::pointcloud::components{
             Data<int> d_maxSplats;
             Data<Cube> d_cube;
             
+            Data<bool> d_showLod;
+            Data<sofa::type::vector<sofa::type::RGBAColor>> d_colors;
             Data<bool> d_showCube;
             Data<sofa::type::RGBAColor> d_cubeColor;
             Data<bool> d_showIntersecCube;
             Data<sofa::type::RGBAColor> d_intersecCubeColor;
             
+            Data<bool> d_loadingLog;
+
             QuadTreeNode* ocTree = nullptr;
             std::map<int, std::list<Splat>> lodPoints;
             
@@ -88,9 +92,12 @@ namespace sofa::pointcloud::components{
                         const sofa::type::RGBAColor& color);
 
             void draw(const sofa::core::visual::VisualParams* vparams) override;
-            void updateIndices(BaseCamera* camera, float aspect);
+            bool updateIndices(BaseCamera* camera, float aspect);
+            int getLod(const int index) const;
             
         private:
+            Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> sh_backup;
+            bool wasShowLodEnabled = false;
 
             sofa::type::Vec3 lastCameraPosition;
             double lastFOV;

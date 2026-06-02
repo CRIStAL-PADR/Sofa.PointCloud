@@ -91,10 +91,11 @@ private:
     std::vector<int> indices;
     std::map<unsigned int, std::vector<int>> directionalIndices;
 
-    std::map<PointCloudOctreeVisualModel*, std::tuple<int,int>> dataCache;
+    std::map<PointCloudOctreeVisualModel*, std::tuple<int,int,bool,bool>> dataCache;
 
     std::array<Plane,6 > clipPlanes;
 
+    void updateSh(auto* datacache, auto* renderingData, auto* visual);
     void transform(float uniformScale,
                    const std::vector<defaulttype::Rigid3Types::Coord>& initFrames,
                    const std::vector<defaulttype::Rigid3Types::Coord>& frames,

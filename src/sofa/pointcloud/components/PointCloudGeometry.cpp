@@ -48,7 +48,12 @@ namespace sofa::pointcloud::components {
         },{&f_bbox});
     }
 
-    PointCloudGeometry::~PointCloudGeometry() {}
+    PointCloudGeometry::~PointCloudGeometry() {
+        if (data != nullptr) {
+            delete data;
+            data = nullptr;
+        }
+    }
 
 
 

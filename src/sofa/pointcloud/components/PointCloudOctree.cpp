@@ -63,9 +63,13 @@ namespace sofa::pointcloud::components{
         d_maxSplats(initData(&d_maxSplats, (int)10, "maxSplats", "Max points per leaf")),
         d_showCube(initData(&d_showCube, false, "showCube", "Display bounding boxes")),
         d_showIntersecCube(initData(&d_showIntersecCube, false, "showIntersecCube", "Display bounding boxes")),
+        d_showLod(initData(&d_showLod, false, "showLod", "Change Color of splats according to LOD")),
+        d_colors(initData(&d_colors, sofa::type::vector<sofa::type::RGBAColor>({sofa::type::RGBAColor(1.0f, 0.0f, 0.0f, 1.0f)}), "colors", "Colors of the splats")),
         d_cubeColor(initData(&d_cubeColor, sofa::type::RGBAColor(1.0f, 0.0f, 0.0f, 1.0f), "cubeColor", "Color of the bounding boxes")),
         d_intersecCubeColor(initData(&d_intersecCubeColor, sofa::type::RGBAColor(0.0f, 1.0f, 0.0f, 1.0f), "intersecCubeColor", "Color of the bounding boxes")),
-        d_cube(initData(&d_cube, Cube(), "cube", "Bounding box of the octree")) { }
+        d_cube(initData(&d_cube, Cube(), "cube", "Bounding box of the octree")),
+        d_loadingLog(initData(&d_loadingLog, true, "loadingLog", "Display loading log")) {
+        }
 
     PointCloudOctree::~PointCloudOctree() {
         if (ocTree) {
@@ -96,6 +100,15 @@ namespace sofa::pointcloud::components{
             return;
         }
 
+        int n = d_distances.getValue().size();
+        type::vector<sofa::type::RGBAColor> colors(n);
+        for (int i = 0; i < n; ++i) {
+            float ratio = (n > 1) ? (float)i / (n - 1) : 0.0f;
+            colors[i] = sofa::type::RGBAColor(ratio, 1.0f - ratio, 0.0f, 0.5f);
+        }
+        d_colors.setValue(colors);
+
+        // Load the files
         std::atomic<bool> running(true);
 
         int lod = 0;
@@ -103,16 +116,18 @@ namespace sofa::pointcloud::components{
             if(filename.empty()) continue;
 
             std::atomic<bool> running(true);
-            std::thread t(loader, std::ref(running), "LOD " + std::to_string(lod) + " " + filename);
+            std::thread t;
+            if (d_loadingLog.getValue())
+                t = std::thread(loader, std::ref(running), "LOD " + std::to_string(lod) + " " + filename);
 
             if( !loadSingleFile(filename, lod) ){
                 d_componentState = core::objectmodel::ComponentState::Invalid;
                 running = false;
-                if(t.joinable()) t.join();
+                if(d_loadingLog.getValue() && t.joinable()) t.join();
                 return;
             }
             running = false;
-            if(t.joinable()) t.join();
+            if(d_loadingLog.getValue() && t.joinable()) t.join();
             
             lod++;
         }
@@ -227,8 +242,10 @@ namespace sofa::pointcloud::components{
 
 
         if (ocTree == nullptr) {
-            auto min = sofa::type::Vec3f(std::round(xyz.col(0).minCoeff()) - 1, std::round(xyz.col(1).minCoeff()) - 1, std::round(xyz.col(2).minCoeff()) - 1);
-            auto max = sofa::type::Vec3f(std::round(xyz.col(0).maxCoeff()) + 1, std::round(xyz.col(1).maxCoeff()) + 1, std::round(xyz.col(2).maxCoeff()) + 1);
+            //auto min = sofa::type::Vec3f(std::round(xyz.col(0).minCoeff()) - 1, std::round(xyz.col(1).minCoeff()) - 1, std::round(xyz.col(2).minCoeff()) - 1);
+            //auto max = sofa::type::Vec3f(std::round(xyz.col(0).maxCoeff()) + 1, std::round(xyz.col(1).maxCoeff()) + 1, std::round(xyz.col(2).maxCoeff()) + 1);
+            auto min = sofa::type::Vec3f(xyz.col(0).minCoeff(), xyz.col(1).minCoeff(), xyz.col(2).minCoeff());
+            auto max = sofa::type::Vec3f(xyz.col(0).maxCoeff(), xyz.col(1).maxCoeff(), xyz.col(2).maxCoeff());
             d_cube.setValue(Cube(min,max));
 
             ocTree = new QuadTreeNode(&d_distances.getValue());
@@ -241,14 +258,17 @@ namespace sofa::pointcloud::components{
 
             Splat s = Splat(pos, indices[i]);
             lodPoints[lod].push_back(s);
-            if (!ocTree->insertSplat(&lodPoints[lod].back(), lod))
+            if (!ocTree->insertSplat(&lodPoints[lod].back(), lod)){
                 msg_warning("PointCloudOctree") << "Splat " << (s.indice - offset) << " insertion failed";
+            } else {
+            }
         }
-        msg_info("PointCloudOctree")  << "LOD " << lod << " has " << N << " splats";
+        if (d_loadingLog.getValue()) 
+            msg_info("PointCloudOctree")  << "LOD " << lod << " has " << N << " splats";
         return true;
     }
 
-    void PointCloudOctree::updateIndices(BaseCamera* camera, float aspect) {
+    bool PointCloudOctree::updateIndices(BaseCamera* camera, float aspect) {
         sofa::type::Vec3 position = camera->getPosition();
         sofa::type::Quat direction = camera->getOrientation();
         auto fov = camera->getFieldOfView();
@@ -257,10 +277,10 @@ namespace sofa::pointcloud::components{
         
         if (ocTree == nullptr) {
             msg_error(this) << "No ocTree node";
-            return;
+            return false;
         }
         if (position == lastCameraPosition && fov == lastFOV && near == lastNear && far == lastFar)
-            return;
+            return false;
         
         
         lastCameraPosition = position;
@@ -289,6 +309,7 @@ namespace sofa::pointcloud::components{
         }
         
         d_componentState = core::objectmodel::ComponentState::Valid;
+        return true;
     }
     
     void PointCloudOctree::drawPlane(const sofa::core::visual::VisualParams* vparams, 
@@ -320,10 +341,19 @@ namespace sofa::pointcloud::components{
         if (d_showIntersecCube.getValue())
             ocTree->drawIntersec(vparams, d_intersecCubeColor.getValue(), lastCameraView);
 
-
-        //vparams->drawTool()->drawSphere(sofa::type::Vec3(0,0,0), 0.1f, sofa::type::RGBAColor(1.0f, 1.0f, 1.0f, 1.0f));
-        
         vparams->drawTool()->restoreLastState();
+    }
+
+    int PointCloudOctree::getLod(const int index) const {
+        int lod = 0;
+        int tmp = 0;
+        for (auto& it : lodPoints) {
+            if (tmp + it.second.size() > index)
+                return lod;
+            lod++;
+            tmp += it.second.size();
+        }
+        return lod;
     }
 
 

@@ -121,8 +121,8 @@ struct QuadTreeNode {
 
     QuadTreeNode(const sofa::type::vector<float>* distances) : distances(distances){}
     ~QuadTreeNode(){
-        delete distances;
         distances = nullptr;
+        
 
         if (isSubdivided) {
             delete upNorthWest;

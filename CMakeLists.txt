@@ -29,7 +29,7 @@ else()
 endif()
 
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -106,3 +106,43 @@ sofa_create_package_with_targets(
     INCLUDE_INSTALL_DIR "${PROJECT_NAME}"
     RELOCATABLE "plugins"
 )
+
+
+# Benchmark option
+option(SOFA_POINTCLOUD_BENCHMARK "Enable benchmark" OFF)
+
+if(SOFA_POINTCLOUD_BENCHMARK)
+    include(FetchContent)
+    FetchContent_Declare(
+        google_benchmark
+        GIT_REPOSITORY https://github.com/google/benchmark.git
+        GIT_TAG        v1.9.5
+    )
+
+    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+
+    FetchContent_MakeAvailable(google_benchmark)
+
+    add_executable(sofa_pointcloud_benchmark 
+        ${HEADER_FILES} 
+        ${SOURCE_FILES} 
+        ${SOFA_POINTCLOUD_SRC}/components/benchmarks/bench_PointCloudOctree.cpp
+    )
+
+    target_link_libraries(sofa_pointcloud_benchmark 
+            PUBLIC 
+            Sofa.PointCloud
+            Sofa.Core
+            Sofa.Component.Visual
+            Sofa.GL
+            benchmark::benchmark
+            )
+    if(MSVC)
+        target_compile_options(sofa_pointcloud_benchmark PRIVATE /O2)
+    else()
+        target_compile_options(sofa_pointcloud_benchmark PRIVATE -O3)
+    endif()
+
+endif()
