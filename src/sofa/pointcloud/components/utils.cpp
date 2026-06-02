@@ -150,4 +150,56 @@ namespace sofa::pointcloud::components {
         outVertices.push_back(pt + sofa::type::Vec3(Eigen::Vector3f(size*(-u-v)).data()));
         outVertices.push_back(pt + sofa::type::Vec3(Eigen::Vector3f(size*(-u+v)).data()));
     }
+
+    void erase(Eigen::MatrixXf& dest, int startRow, int rowCount)
+    {
+        if (rowCount <= 0) return;
+        assert(startRow + rowCount <= dest.rows());
+
+        int rowsToMove = dest.rows() - (startRow + rowCount);
+        if (rowsToMove > 0) {
+            dest.block(startRow, 0, rowsToMove, dest.cols()) = 
+                dest.block(startRow + rowCount, 0, rowsToMove, dest.cols());
+        }
+        dest.conservativeResize(dest.rows() - rowCount, dest.cols());
+    }
+
+    template<int Size>
+    void erase(Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& dest, 
+               int startRow, int rowCount)
+    {
+        if (rowCount <= 0) return;
+        assert(startRow + rowCount <= dest.rows());
+
+        int rowsToMove = dest.rows() - (startRow + rowCount);
+        if (rowsToMove > 0) {
+            dest.block(startRow, 0, rowsToMove, dest.cols()) = 
+                dest.block(startRow + rowCount, 0, rowsToMove, dest.cols());
+        }
+        dest.conservativeResize(dest.rows() - rowCount, dest.cols());
+    }
+
+    void erase(Eigen::Matrix<float, Eigen::Dynamic, 1>& dest, 
+               int startRow, int rowCount)
+    {
+        if (rowCount <= 0) return;
+        assert(startRow + rowCount <= dest.rows());
+
+        int rowsToMove = dest.rows() - (startRow + rowCount);
+        if (rowsToMove > 0) {
+            dest.block(startRow, 0, rowsToMove, dest.cols()) = 
+                dest.block(startRow + rowCount, 0, rowsToMove, dest.cols());
+        }
+        dest.conservativeResize(dest.rows() - rowCount, dest.cols());
+    }
+
+    void erase(GaussianData& dest, int startRow, int rowCount)
+    {
+        erase(dest.xyz, startRow, rowCount);
+        erase(dest.sh, startRow, rowCount);
+        erase(dest.opacity, startRow, rowCount);
+        erase(dest.scale, startRow, rowCount);
+        erase(dest.rot, startRow, rowCount);
+    }
+
 }

@@ -35,4 +35,13 @@ namespace sofa::pointcloud::components {
                             float radius);
 
     void generatePlaneMesh(const Plane& plane, std::vector<sofa::type::Vec3>& outVertices);
+
+    void erase(Eigen::MatrixXf& dest, int startRow, int rowCount);
+    template<int Size>
+    void erase(Eigen::Matrix<float, Eigen::Dynamic, Size, Eigen::RowMajor>& dest, 
+               int startRow, int rowCount);
+    void erase(Eigen::Matrix<float, Eigen::Dynamic, 1>& dest, 
+               int startRow, int rowCount);
+    void erase(GaussianData& dest, int startRow, int rowCount);
+
 }
