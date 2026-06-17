@@ -28,6 +28,9 @@ namespace sofa::pointcloud::components
     class PointCloudTransform;
     class PointCloudInspector;
     class PointCloudVisualModel;
+
+    class PointCloudOctreeSelector;
+    class PointCloudOctreeLodSelector;
 }
 
 namespace sofa::core

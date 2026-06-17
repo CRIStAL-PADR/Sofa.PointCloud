@@ -53,6 +53,7 @@ public:
     ~PointCloudContainer();
 
     DataFileName d_filename;
+    Data<bool> d_printLodding;
 
     void init() override;
     void updateBBox();
@@ -73,7 +74,7 @@ public:
     Data<Eigen::MatrixXf> d_sphericalHarmonics;
 
     Data<type::vector<int>> d_indices;
-
+    
  private:
 };
 
