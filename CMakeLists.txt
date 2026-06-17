@@ -9,6 +9,8 @@ find_package(Sofa.Component.Visual REQUIRED)
 find_package(Sofa.GL REQUIRED)
 find_package(SofaPython3 REQUIRED)
 
+include_directories(extlibs/tinyply/source)
+
 # ================= CUDA detection =================
 if(SOFA_POINTCLOUD_CUDA)
     include(CheckLanguage)
@@ -24,6 +26,7 @@ if(SOFA_POINTCLOUD_CUDA)
     endif()
 else()
     set(HAVE_CUDA FALSE)
+    message(WARNING "CUDA requested but not found, disabling")
 endif()
 
 
@@ -40,12 +43,15 @@ set(HEADER_FILES
     ${SOFA_POINTCLOUD_SRC}/config.h.in
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudContainer.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudTransform.h
+    ${SOFA_POINTCLOUD_SRC}/components/utils.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRenderer.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererBackend.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererCUDA.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.h
     ${SOFA_POINTCLOUD_SRC}/components/liteviz-dataloader.h
+    ${SOFA_POINTCLOUD_SRC}/components/selectors/PointCloudSelector.h
+    ${SOFA_POINTCLOUD_SRC}/components/selectors/PointCloudLodSelector.h
     extlibs/liteviz-gs/liteviz/dataloader.h
     extlibs/liteviz-gs/liteviz/renderer.h
     extlibs/liteviz-gs/liteviz/shader.h
@@ -60,16 +66,22 @@ set(SOURCE_FILES
     ${SOFA_POINTCLOUD_SRC}/fwd.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudContainer.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudTransform.cpp
+    ${SOFA_POINTCLOUD_SRC}/components/utils.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRenderer.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererCUDA.cpp
+    ${SOFA_POINTCLOUD_SRC}/components/selectors/PointCloudLodSelector.cpp
 )
 
 # CUDA sources conditionnels
 if(HAVE_CUDA)
     list(APPEND SOURCE_FILES
         ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererBackend.cu
+    )
+else()
+    list(APPEND SOURCE_FILES
+        ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererBackend.cpp
     )
 endif()
 
@@ -88,3 +100,43 @@ sofa_create_package_with_targets(
     INCLUDE_INSTALL_DIR "${PROJECT_NAME}"
     RELOCATABLE "plugins"
 )
+
+# Benchmark option
+option(SOFA_POINTCLOUD_BENCHMARK "Enable benchmark" OFF)
+
+if(SOFA_POINTCLOUD_BENCHMARK)
+    include(FetchContent)
+    FetchContent_Declare(
+        google_benchmark
+        GIT_REPOSITORY https://github.com/google/benchmark.git
+        GIT_TAG        v1.9.5
+    )
+
+    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+
+    FetchContent_MakeAvailable(google_benchmark)
+
+    add_executable(sofa_pointcloud_benchmark_lod 
+        ${SOURCE_FILES} 
+        ${HEADER_FILES} 
+        ${SOFA_POINTCLOUD_SRC}/benchmarks/LodSelectorBenchmark.cpp
+    )
+
+    target_link_libraries(sofa_pointcloud_benchmark_lod 
+            PUBLIC 
+            Sofa.PointCloud
+            Sofa.Core
+            Sofa.Component.Visual
+            Sofa.GL
+            benchmark::benchmark
+            )
+
+    if(MSVC)
+        target_compile_options(sofa_pointcloud_benchmark_lod PRIVATE /O2)
+    else()
+        target_compile_options(sofa_pointcloud_benchmark_lod PRIVATE -O3)
+    endif()
+
+endif()
