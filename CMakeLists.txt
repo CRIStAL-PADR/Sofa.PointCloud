@@ -9,6 +9,8 @@ find_package(Sofa.Component.Visual REQUIRED)
 find_package(Sofa.GL REQUIRED)
 find_package(SofaPython3 REQUIRED)
 
+include_directories(extlibs/tinyply/source)
+
 # ================= CUDA detection =================
 if(SOFA_POINTCLOUD_CUDA)
     include(CheckLanguage)
@@ -24,6 +26,7 @@ if(SOFA_POINTCLOUD_CUDA)
     endif()
 else()
     set(HAVE_CUDA FALSE)
+    message(WARNING "CUDA requested but not found, disabling")
 endif()
 
 
@@ -40,12 +43,14 @@ set(HEADER_FILES
     ${SOFA_POINTCLOUD_SRC}/config.h.in
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudContainer.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudTransform.h
+    ${SOFA_POINTCLOUD_SRC}/components/utils.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRenderer.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererBackend.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererCUDA.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.h
     ${SOFA_POINTCLOUD_SRC}/components/liteviz-dataloader.h
+    ${SOFA_POINTCLOUD_SRC}/components/selectors/PointCloudSelector.h
     extlibs/liteviz-gs/liteviz/dataloader.h
     extlibs/liteviz-gs/liteviz/renderer.h
     extlibs/liteviz-gs/liteviz/shader.h
@@ -60,6 +65,7 @@ set(SOURCE_FILES
     ${SOFA_POINTCLOUD_SRC}/fwd.h
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudContainer.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudTransform.cpp
+    ${SOFA_POINTCLOUD_SRC}/components/utils.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudRenderer.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudVisualModel.cpp
     ${SOFA_POINTCLOUD_SRC}/components/PointCloudInspector.cpp
@@ -70,6 +76,10 @@ set(SOURCE_FILES
 if(HAVE_CUDA)
     list(APPEND SOURCE_FILES
         ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererBackend.cu
+    )
+else()
+    list(APPEND SOURCE_FILES
+        ${SOFA_POINTCLOUD_SRC}/components/PointCloudRendererBackend.cpp
     )
 endif()
 
