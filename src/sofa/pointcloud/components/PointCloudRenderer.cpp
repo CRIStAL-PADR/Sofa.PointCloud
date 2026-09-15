@@ -191,8 +191,7 @@ void append(GaussianData& dest, const GaussianData& src)
 
 std::vector<int> range(int maxSize)
 {
-    std::vector<int> tmp;
-    tmp.reserve(maxSize);
+    std::vector<int> tmp {maxSize};
     for(auto i=0;i<maxSize;++i) tmp.emplace_back(i);
     return tmp;
 }
@@ -388,19 +387,13 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             if(visual->d_isStaticModel.getValue())
                 continue;
 
-            auto [modelBeginIndex, modelSize] = dataCache[visual];
-            int modelSplatsCount = visual->l_geometry->data->xyz.rows();
+            auto [offset, size] = dataCache[visual];
 
             std::vector<std::vector<int>> frameMap{frames.size()};
             for(size_t i=0;i<frameIndices.size();++i)
             {
-                frameMap[frameIndices[i]].push_back(modelBeginIndex+i);
+                frameMap[frameIndices[i]].push_back(i);
             }
-
-            // Reset to untransformed reference before applying new pose
-            renderingData.xyz.block(modelBeginIndex, 0, modelSplatsCount, 3) = referenceData.xyz.block(modelBeginIndex, 0, modelSplatsCount, 3);
-            renderingData.rot.block(modelBeginIndex, 0, modelSplatsCount, 4) = referenceData.rot.block(modelBeginIndex, 0, modelSplatsCount, 4);
-            renderingData.scale.block(modelBeginIndex, 0, modelSplatsCount, 3) = referenceData.scale.block(modelBeginIndex, 0, modelSplatsCount, 3);
 
             {
                 SCOPED_TIMER("PointCloud::doDrawVisual::sceneTransform");
@@ -413,12 +406,11 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
                                 visual->l_geometry->data->rot, renderingData.rot,
                                 renderingData.scale, offset);
             }
-            msg_info() << "Updating a new data set " << visual->getPathName() << " with frames " << frames.size();
-            msg_info() << "         data set modelBeginIndex & modelSize " << modelBeginIndex << ", " << modelSize;
-            updatesBufferParts.push_back({modelBeginIndex,modelSize});
+            msg_info() << "Updating point clouds from " << visual->getPathName() << " with frames " << frames.size() << msgendl
+                       << "         data set offset & size " << offset << ", " << size;
+            updatesBufferParts.push_back({offset,size});
         }
     }
-
     msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
 
     // In case there is not rendering data, then just exit
@@ -428,7 +420,7 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     // Here we have geometries to draw and a camera that look at it.
     // We first send the camera parameters to the gl rendering backend, then the geometries.
     auto c = l_camera->getPosition();
-    Eigen::Vector3f cam_pos {float(c[0]),float(c[1]), float(c[2])};
+    Eigen::Vector3f cam_pos {(float)c[0],(float)c[1],(float)c[2]};
 
     vparams->getModelViewMatrix(dviewmat.data());
     vparams->getProjectionMatrix(dprojmat.data());

@@ -33,7 +33,10 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(HAVE_CUDA)
     set(CMAKE_CUDA_STANDARD 17)
-    set(CMAKE_CUDA_FLAGS "-D__CUDA_NO_MATH_FUNCTIONS__ -O3 -std=c++17 -Xcompiler=-fPIC -Wno-attributes -fsized-deallocation -v")
+    set(CMAKE_CUDA_FLAGS "-D__CUDA_NO_MATH_FUNCTIONS__ -O3 -std=c++17 -v")
+    if(NOT MSVC)
+        target_compile_options(${PROJECT_NAME} PRIVATE -Wno-attributes -fsized-deallocation -Xcompiler=-fPIC)
+    endif()
 endif()
 
 set(HEADER_FILES
@@ -88,7 +91,7 @@ set(TBB_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 set(TBB_ENABLE_IPO OFF CACHE BOOL "" FORCE)
 add_subdirectory("extlibs/tbb")
-add_library(${PROJECT_NAME} SHARED ${HEADER_FILES} ${SOURCE_FILES})
+
 if(TARGET TBB::tbb)
 add_custom_command(
     TARGET ${PROJECT_NAME}
