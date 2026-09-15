@@ -77,10 +77,9 @@ if(HAVE_CUDA)
     )
 endif()
 
-add_library(${PROJECT_NAME} SHARED ${HEADER_FILES} ${SOURCE_FILES})
 
 if(HAVE_CUDA)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE SOFA_POINTCLOUD_USE_CUDA)
+target_compile_definitions(${PROJECT_NAME} PRIVATE SOFA_POINTCLOUD_USE_CUDA)
 endif()
 # Tinyply and liteviz
 include_directories("extlibs/tinyply/source")
@@ -91,6 +90,7 @@ set(TBB_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
 set(TBB_ENABLE_IPO OFF CACHE BOOL "" FORCE)
 add_subdirectory("extlibs/tbb")
+add_library(${PROJECT_NAME} SHARED ${HEADER_FILES} ${SOURCE_FILES})
 
 if(TARGET TBB::tbb)
 add_custom_command(

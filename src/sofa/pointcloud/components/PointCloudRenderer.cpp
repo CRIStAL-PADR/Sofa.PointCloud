@@ -191,7 +191,8 @@ void append(GaussianData& dest, const GaussianData& src)
 
 std::vector<int> range(int maxSize)
 {
-    std::vector<int> tmp {maxSize};
+    std::vector<int> tmp;
+    tmp.reserve(maxSize);
     for(auto i=0;i<maxSize;++i) tmp.emplace_back(i);
     return tmp;
 }
@@ -387,13 +388,23 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
             if(visual->d_isStaticModel.getValue())
                 continue;
 
-            auto [offset, size] = dataCache[visual];
+            auto [modelBeginIndex, modelSize] = dataCache[visual];
+            int modelSplatsCount = visual->l_geometry->data->xyz.rows();
 
             std::vector<std::vector<int>> frameMap{frames.size()};
             for(size_t i=0;i<frameIndices.size();++i)
             {
+<<<<<<< HEAD
                 frameMap[frameIndices[i]].push_back(i);
+=======
+                frameMap[frameIndices[i]].push_back(modelBeginIndex+i);
+>>>>>>> 642daaa9bac782b291197b00af422c8469de373f
             }
+
+            // Reset to untransformed reference before applying new pose
+            renderingData.xyz.block(modelBeginIndex, 0, modelSplatsCount, 3) = referenceData.xyz.block(modelBeginIndex, 0, modelSplatsCount, 3);
+            renderingData.rot.block(modelBeginIndex, 0, modelSplatsCount, 4) = referenceData.rot.block(modelBeginIndex, 0, modelSplatsCount, 4);
+            renderingData.scale.block(modelBeginIndex, 0, modelSplatsCount, 3) = referenceData.scale.block(modelBeginIndex, 0, modelSplatsCount, 3);
 
             {
                 SCOPED_TIMER("PointCloud::doDrawVisual::sceneTransform");
@@ -406,11 +417,18 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
                                 visual->l_geometry->data->rot, renderingData.rot,
                                 renderingData.scale, offset);
             }
+<<<<<<< HEAD
             msg_info() << "Updating point clouds from " << visual->getPathName() << " with frames " << frames.size() << msgendl
                        << "         data set offset & size " << offset << ", " << size;
             updatesBufferParts.push_back({offset,size});
+=======
+            msg_info() << "Updating a new data set " << visual->getPathName() << " with frames " << frames.size();
+            msg_info() << "         data set modelBeginIndex & modelSize " << modelBeginIndex << ", " << modelSize;
+            updatesBufferParts.push_back({modelBeginIndex,modelSize});
+>>>>>>> 642daaa9bac782b291197b00af422c8469de373f
         }
     }
+
     msg_info() << "  total number of splats to render: " << renderingData.size() << " splats ";
 
     // In case there is not rendering data, then just exit
@@ -420,7 +438,11 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     // Here we have geometries to draw and a camera that look at it.
     // We first send the camera parameters to the gl rendering backend, then the geometries.
     auto c = l_camera->getPosition();
+<<<<<<< HEAD
     Eigen::Vector3f cam_pos {(float)c[0],(float)c[1],(float)c[2]};
+=======
+    Eigen::Vector3f cam_pos {float(c[0]),float(c[1]), float(c[2])};
+>>>>>>> 642daaa9bac782b291197b00af422c8469de373f
 
     vparams->getModelViewMatrix(dviewmat.data());
     vparams->getProjectionMatrix(dprojmat.data());
@@ -506,11 +528,14 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
     }
 
     if(depths.size()!=indices.size()){
+<<<<<<< HEAD
         SCOPED_TIMER("PointCloud::doDrawVisual::bufferUpdate INDEX");
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::INDEX]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, indices.size() * sizeof(int), indices.data(), GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssbo_splat[SplatProperty::INDEX]);
 
+=======
+>>>>>>> 642daaa9bac782b291197b00af422c8469de373f
         depths.resize(indices.size());
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssbo_splat[SplatProperty::DEPTHS]);
         glBufferData(GL_SHADER_STORAGE_BUFFER, depths.size() * sizeof(float), depths.data(), GL_DYNAMIC_DRAW);
@@ -523,9 +548,15 @@ void PointCloudRenderer::doDrawVisual(const sofa::core::visual::VisualParams* vp
 
         if(d_withCuda.getValue())
         {
+<<<<<<< HEAD
             splatsToDraw = PointCloudRendererBackend::transform_and_sort_cuda(
                 clipPlanes,
                 viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
+=======
+            selectedIndices.resize(renderingData.size());
+            std::iota(selectedIndices.begin(), selectedIndices.end(), 0);
+            PointCloudRendererBackend::transform_and_sort_cuda(viewmat, interop_positions, interop_depths, interop_indices, renderingData.size());
+>>>>>>> 642daaa9bac782b291197b00af422c8469de373f
         }else
         {
             std::vector<int> selectedIndices;
