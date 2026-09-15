@@ -77,10 +77,6 @@ if(HAVE_CUDA)
     )
 endif()
 
-
-if(HAVE_CUDA)
-target_compile_definitions(${PROJECT_NAME} PRIVATE SOFA_POINTCLOUD_USE_CUDA)
-endif()
 # Tinyply and liteviz
 include_directories("extlibs/tinyply/source")
 
@@ -104,6 +100,10 @@ add_custom_command(
     
 target_link_libraries(${PROJECT_NAME} PUBLIC Sofa.Core Sofa.Component.Visual Sofa.GL SofaPython3::Plugin TBB::tbb)
 set_target_properties(${PROJECT_NAME}  PROPERTIES CUDA_ARCHITECTURES 89)
+
+if(HAVE_CUDA)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE SOFA_POINTCLOUD_USE_CUDA)
+endif()
 
 sofa_create_package_with_targets(
     PACKAGE_NAME ${PROJECT_NAME}
