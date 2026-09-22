@@ -1,11 +1,12 @@
 #include <sofa/pointcloud/components/PointCloudRendererBackend.h>
+#include <tbb/tbb.h>
+
+#ifdef SOFA_POINTCLOUD_USE_CUDA
 #include <cuda_runtime.h>
 #include <thrust/device_vector.h>
 #include <thrust/sort.h>
 #include <thrust/remove.h>
 #include <cuda_gl_interop.h>
-#include <tbb/tbb.h>
-
 
 #define CUDA_CHECK(call) do { \
     cudaError_t err = call; \
@@ -258,6 +259,12 @@ bool PointCloudRendererBackend::hasCuda()
     cudaGetDeviceCount(&deviceCount);
     return deviceCount > 0;
 }
+#else
+template<> BaseGLBuffer* PointCloudRendererBackend::createBuffer<int>(GLuint ssboID);
+template<> BaseGLBuffer* PointCloudRendererBackend::createBuffer<float>(GLuint ssboID);
+int PointCloudRendererBackend::transform_and_sort_cuda(){}
+bool PointCloudRendererBackend::hasCuda(){ return false; }
+#endif
 
 void PointCloudRendererBackend::transform_and_sort_cpu(const Eigen::Matrix4f& P,
                                                        const Eigen::MatrixXf& positions,

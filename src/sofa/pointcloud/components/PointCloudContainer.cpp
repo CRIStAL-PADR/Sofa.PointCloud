@@ -45,7 +45,7 @@ namespace sofa::core::objectmodel
 
 /// Specialization for reading strings
 template<>
-bool Data<Eigen::MatrixXf>::read( const std::string& str ){}
+bool Data<Eigen::MatrixXf>::read(const std::string& str) { return false; }
 
 /// Specialization for reading strings
 template<>
