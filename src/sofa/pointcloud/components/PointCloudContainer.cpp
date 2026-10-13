@@ -40,26 +40,6 @@ void registerToFactory<sofa::pointcloud::components::PointCloudContainer>(sofa::
 
 }
 
-namespace sofa::core::objectmodel
-{
-
-/// Specialization for reading strings
-template<>
-bool Data<Eigen::MatrixXf>::read( const std::string& str ){}
-
-/// Specialization for reading strings
-template<>
-std::string Data<Eigen::MatrixXf>::getValueString() const
-{
-    std::stringstream tmp;
-    tmp << "EigenMatrix(" << m_value.getValue().rows() << "," << m_value.getValue().cols() << ")";
-    return tmp.str();
-}
-
-}
-
-
-
 namespace sofa::pointcloud::components
 {
 

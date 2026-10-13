@@ -24,21 +24,8 @@
 #include <sofa/pointcloud/config.h>
 #include <sofa/core/objectmodel/BaseObject.h>
 #include <sofa/core/objectmodel/DataFileName.h>
-#include <fstream>
+#include <sofa/core/data/Data[Eigen].h>
 #include <sofa/pointcloud/components/liteviz-dataloader.h>
-
-namespace sofa::core::objectmodel
-{
-
-
-/// Specialization for reading strings
-template<>
-bool Data<Eigen::MatrixXf>::read( const std::string& str );
-
-template<>
-std::string Data<Eigen::MatrixXf>::getValueString() const;
-
-}
 
 namespace sofa::pointcloud::components
 {
